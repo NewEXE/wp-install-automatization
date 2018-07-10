@@ -169,15 +169,74 @@ echo outputDelimiter();
  * Elasticsearch sync
  */
 
+echo '* Elasticsearch synchronization...' . PHP_EOL;
+
 $exec = [];
 exec("wp wces status", $exec); // todo create one param value returns mode (wp wces status --es)
-$esConnected = substr($exec[0], 25) === 'NO' ? false : true;
+$esConnected = substr($exec[0], 25, 2) === 'NO' ? false : true;
 
 if (! $esConnected) exit('Elasticsearch not connected, exit.' . PHP_EOL);
 
-echo '* Elasticsearch synchronization...' . PHP_EOL;
-
 echo exec('wp wces index') . PHP_EOL;
+
+echo outputDelimiter();
+
+/*
+ * Testing
+ */
+
+echo '* Testing...' . PHP_EOL;
+
+$tests = [
+    'wp_versions_equals' => [
+        'description' => 'Required and installed WP versions are equals',
+        'passed' => false,
+    ],
+    'wc_versions_equals' => [
+        'description' => 'Required and installed WC versions are equals',
+        'passed' => false,
+    ],
+    'search_results_equals' => [
+        'description' => 'Expected and received products are equals',
+        'passed' => false,
+    ],
+];
+
+$tests['wp_versions_equals']['passed'] = $wpVersion === $installedWpVersion;
+
+$tests['wc_versions_equals']['passed'] = $wcVersion === WC()->version;
+
+$args = [
+    's' => 'Beanie with Logo'
+];
+$products = wc_get_products($args);
+
+$receivedNames = [];
+foreach ($products as $product) {
+    $receivedNames[] = $product->get_name();
+}
+
+$expectedNames = [
+    'WordPress Pennant',
+    'Logo Collection',
+    'Beanie with Logo',
+    'T-Shirt with Logo',
+    'Album',
+    'Single',
+    'Polo',
+    'Long Sleeve Tee',
+    'Hoodie with Pocket',
+    'Hoodie with Zipper',
+];
+
+// if Elasticsearch is off:
+// Beanie with Logo
+
+$tests['search_results_equals']['passed'] = isArrayEquals($receivedNames, $expectedNames);
+
+foreach ($tests as $test) {
+    echo $test['description'] . ' => ' . ($test['passed'] ? '✔ passed' : '× NOT PASSED') . PHP_EOL;
+}
 
 chdir($cwd);
 
@@ -190,4 +249,18 @@ echo PHP_EOL . 'Script completed.' . PHP_EOL;
  */
 function outputDelimiter() {
     return str_repeat('=', 25) . PHP_EOL;
+}
+
+/**
+ * @param array $a
+ * @param array $b
+ * @return bool
+ */
+function isArrayEquals($a, $b) {
+    return (
+        is_array($a)
+        && is_array($b)
+        && count($a) == count($b)
+        && array_diff($a, $b) === array_diff($b, $a)
+    );
 }
