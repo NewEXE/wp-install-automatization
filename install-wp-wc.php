@@ -234,9 +234,25 @@ $expectedNames = [
 
 $tests['search_results_equals']['passed'] = isArrayEquals($receivedNames, $expectedNames);
 
+$passedCount = $failedCount = $allTestsCount = 0;
+
 foreach ($tests as $test) {
+    $allTestsCount++;
+
+    $test['passed'] ? ++$passedCount : ++$failedCount;
+
     echo $test['description'] . ' => ' . ($test['passed'] ? '✔ passed' : '× NOT PASSED') . PHP_EOL;
 }
+
+echo PHP_EOL;
+if ($allTestsCount === $passedCount) {
+    echo 'All tests have passed';
+} elseif($allTestsCount === $failedCount) {
+    echo 'All tests have failed';
+} else {
+	echo 'Some tests have failed';
+}
+echo " (passed $passedCount/$allTestsCount)." . PHP_EOL;
 
 chdir($cwd);
 
