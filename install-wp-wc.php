@@ -14,36 +14,52 @@
  * Admin credentials: admin / admin
  */
 
-if (! isset($argv[1], $argv[2], $argv[3])) exit('Provide WordPress and WooCommerce versions and domain name' . PHP_EOL);
+if (! isset($argv[1], $argv[2], $argv[3])) exit('Provide WordPress and WooCommerce versions and domain name.' . PHP_EOL);
 
 $wpVersion = $argv[1];
 $wcVersion = $argv[2];
 $domainName = trim($argv[3], '/');
 
-$cliVersion = exec('wp cli version');
-
-echo '* Script enviroment' . PHP_EOL . PHP_EOL;
-
-echo 'PHP '. phpversion() . PHP_EOL;
-echo $cliVersion . PHP_EOL;
-
 $codeName = "wp-$wpVersion-wc-$wcVersion";
 
 /*
- * Create dir
+ * Script settings
  */
-if (! is_dir($codeName)) {
-    mkdir($codeName, 0755);
-}
 
-/*
- * Create DB
- */
+$force = false;
+
+// DB settings
 $dbParams = [
     'host'      => 'localhost',
     'user'      => 'homestead',
     'password'  => 'secret',
 ];
+
+// WP installation settings
+$url = "$domainName/$codeName";
+$title = "WP v$wpVersion, WC v$wcVersion";
+$adminUser = 'admin';
+$adminPassword = 'admin';
+$adminEmail = "admin@example.com";
+
+/*
+ * Get script environment info
+ */
+
+$cliVersion = exec('wp cli version');
+
+echo '* Script environment' . PHP_EOL;
+
+echo 'PHP '. phpversion() . PHP_EOL;
+echo $cliVersion . PHP_EOL;
+
+/*
+ * Create dir and DB
+ */
+
+if (! is_dir($codeName)) {
+    mkdir($codeName, 0755);
+}
 
 try {
     $dbh = new PDO("mysql:host={$dbParams['host']}", $dbParams['user'], $dbParams['password']);
@@ -60,18 +76,12 @@ try {
  * Install WP
  */
 
-$url = "$domainName/$codeName";
-$title = "WP v$wpVersion, WC v$wcVersion";
-$adminUser = 'admin';
-$adminPassword = 'admin';
-$adminEmail = "admin@example.com";
-
-$cmd1 = "wp core download --path='$codeName' --version='$wpVersion' --force";
-$cmd2 = "wp config create --path='$codeName' --dbname='$codeName' --dbuser='{$dbParams['user']}' --dbpass='{$dbParams['password']}' --dbhost='{$dbParams['host']}' --dbcharset='utf8' --force";
+$cmd1 = "wp core download --path='$codeName' --version='$wpVersion'" . ($force ? ' --force' : '');
+$cmd2 = "wp config create --path='$codeName' --dbname='$codeName' --dbuser='{$dbParams['user']}' --dbpass='{$dbParams['password']}' --dbhost='{$dbParams['host']}' --dbcharset='utf8'" . ($force ? ' --force' : '');
 $cmd3 = "wp core install --path='$codeName' --url='$url' --title='$title' --admin_user='$adminUser' --admin_password='$adminPassword' --admin_email='$adminEmail' --skip-email";
 
 echo outputDelimiter();
-echo '* Installing and configuring WordPress' . PHP_EOL . PHP_EOL;
+echo '* Installing and configuring WordPress' . PHP_EOL;
 
 passthru($cmd1);
 passthru($cmd2);
@@ -81,25 +91,19 @@ passthru($cmd3);
  * Install WC and demo products
  */
 
-
 echo outputDelimiter();
-echo '* Installing and configuring WooCommerce, importing products' . PHP_EOL . PHP_EOL;
+echo '* Installing and configuring WooCommerce, importing products' . PHP_EOL;
 
-passthru("wp plugin install woocommerce --path='$codeName' --version=$wcVersion --force --activate");
+passthru("wp plugin install woocommerce --path='$codeName' --version=$wcVersion --activate"  . ($force ? ' --force' : ''));
 
-passthru("wp plugin install wordpress-importer --path='$codeName' --force --activate");
+passthru("wp plugin install wordpress-importer --path='$codeName' --activate" . ($force ? ' --force' : ''));
+
+echo 'Importing products...' . PHP_EOL;
 
 $cmd4 = "wp import sample_products.xml --authors=create --path='$codeName'";
 echo exec($cmd4) . PHP_EOL;
 
 echo outputDelimiter();
-
-$cwd = getcwd();
-chdir($codeName);
-
-//passthru("wp wc");
-
-chdir($cwd);
 
 /*
  * Install plugin from local zip
@@ -109,20 +113,39 @@ if (! isset($pluginPath)) {
     $pluginPath = 'wces.zip';
 }
 
-echo "* Installing plugin from zip: $pluginPath..." . PHP_EOL . PHP_EOL;
+echo "* Installing plugin from zip: $pluginPath..." . PHP_EOL;
 
 if (is_file($pluginPath)) {
-    passthru("wp plugin install $pluginPath --path='$codeName' --force --activate");
+    passthru("wp plugin install $pluginPath --path='$codeName' --activate" . ($force ? ' --force' : ''));
 } else {
     exit('Provide correct path to plugin\'s ZIP-file');
 }
 
 echo outputDelimiter();
 
-echo 'Script completed.' . PHP_EOL;
+/*
+ * Elasticsearch sync
+ */
+
+$cwd = getcwd();
+chdir($codeName);
+
+$exec = [];
+exec("wp wces status", $exec); // todo create one param value returns mode (wp wces status --es)
+$esConnected = substr($exec[0], 25) === 'NO' ? false : true;
+
+if (! $esConnected) exit('Elasticsearch not connected, exit.' . PHP_EOL);
+
+echo '* Elasticsearch synchronization...' . PHP_EOL;
+
+echo exec('wp wces index') . PHP_EOL;
+
+chdir($cwd);
+
+echo PHP_EOL . 'Script completed.' . PHP_EOL;
 
 /**
- * Returns script's sections delimiter.
+ * Returns script's section delimiter.
  *
  * @return string
  */
