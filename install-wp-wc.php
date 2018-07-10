@@ -48,7 +48,7 @@ $adminEmail = "admin@example.com";
 
 $cliVersion = exec('wp cli version');
 
-echo '* Script environment' . PHP_EOL;
+echo '* Script environment: ' . PHP_EOL;
 
 echo 'PHP '. phpversion() . PHP_EOL;
 echo $cliVersion . PHP_EOL;
@@ -81,7 +81,7 @@ $cmd2 = "wp config create --path='$codeName' --dbname='$codeName' --dbuser='{$db
 $cmd3 = "wp core install --path='$codeName' --url='$url' --title='$title' --admin_user='$adminUser' --admin_password='$adminPassword' --admin_email='$adminEmail' --skip-email";
 
 echo outputDelimiter();
-echo '* Installing and configuring WordPress' . PHP_EOL;
+echo '* Installing and configuring WordPress...' . PHP_EOL;
 
 passthru($cmd1);
 passthru($cmd2);
@@ -92,11 +92,13 @@ passthru($cmd3);
  */
 
 echo outputDelimiter();
-echo '* Installing and configuring WooCommerce, importing products' . PHP_EOL;
+echo '* Installing and configuring WooCommerce, importing products...' . PHP_EOL;
 
 passthru("wp plugin install woocommerce --path='$codeName' --version=$wcVersion --activate"  . ($force ? ' --force' : ''));
 
 passthru("wp plugin install wordpress-importer --path='$codeName' --activate" . ($force ? ' --force' : ''));
+
+passthru("wp theme install storefront --path='$codeName' --activate" . ($force ? ' --force' : ''));
 
 echo 'Importing products...' . PHP_EOL;
 
@@ -118,17 +120,54 @@ echo "* Installing plugin from zip: $pluginPath..." . PHP_EOL;
 if (is_file($pluginPath)) {
     passthru("wp plugin install $pluginPath --path='$codeName' --activate" . ($force ? ' --force' : ''));
 } else {
-    exit('Provide correct path to plugin\'s ZIP-file');
+    exit('Provide correct path to plugin\'s ZIP-file'. PHP_EOL);
 }
+
+echo outputDelimiter();
+
+/*
+ * Include WP core
+ */
+
+echo '* Including WP core...' . PHP_EOL;
+
+$cwd = getcwd();
+
+if ( ! chdir( $codeName ) ) {
+    exit("chdir error (dir: $codeName)" . PHP_EOL);
+}
+
+if ( ! file_exists( 'wp-load.php' ) ) {
+    exit('wp-load.php not exists' . PHP_EOL);
+}
+
+// Connect to WP
+define('WP_USE_THEMES', false);
+
+// Suppress warnings in parent theme
+if ( !isset($_SERVER['REMOTE_ADDR']) )      $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
+if ( !isset($_SERVER['REQUEST_METHOD']) )   $_SERVER['REQUEST_METHOD'] = 'GET';
+if ( !isset($_SERVER['SERVER_NAME']) )      $_SERVER['SERVER_NAME'] = '';
+
+require 'wp-load.php';
+
+if ( ! defined('ABSPATH') ) {
+    exit('ABSPATH not defined' . PHP_EOL);
+}
+
+if (!function_exists('get_bloginfo')) {
+    exit('WordPress not included correctly' . PHP_EOL);
+}
+
+$installedWpVersion = get_bloginfo('version');
+
+echo "WordPress v$installedWpVersion was included." . PHP_EOL;
 
 echo outputDelimiter();
 
 /*
  * Elasticsearch sync
  */
-
-$cwd = getcwd();
-chdir($codeName);
 
 $exec = [];
 exec("wp wces status", $exec); // todo create one param value returns mode (wp wces status --es)
