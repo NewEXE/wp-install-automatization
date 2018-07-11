@@ -1,6 +1,6 @@
 <?php
 /**
- * Script that install WordPress and Woocommerce
+ * Script that install WordPress and WooCommerce
  * with Sample Data (WC products).
  *
  * Usage example:
@@ -46,7 +46,12 @@ $adminEmail = "admin@example.com";
  * Get script environment info
  */
 
-$cliVersion = exec('wp cli version');
+$cmd         = 'wp cli version';
+$cmdOutput   = [];
+$returnedVar = 0;
+$cliVersion  = exec($cmd, $cmdOutput, $returnedVar);
+
+commandErrorHandler($cmd, $returnedVar);
 
 echo '* Script environment: ' . PHP_EOL;
 
@@ -57,8 +62,13 @@ echo $cliVersion . PHP_EOL;
  * Create dir and DB
  */
 
+echo outputDelimiter();
+echo '* Creating dir and DB... ' . PHP_EOL;
+
 if (! is_dir($codeName)) {
-    mkdir($codeName, 0755);
+    if (! mkdir($codeName, 0755)) {
+	    commandErrorHandler("mkdir($codeName, 0755)", 1);
+    }
 }
 
 try {
@@ -72,8 +82,10 @@ try {
     exit('Database error: ' .  $e->getMessage() . PHP_EOL);
 }
 
+echo 'Successfully created.' . PHP_EOL;
+
 /*
- * Install WP
+ * Install and configure WP
  */
 
 $cmd1 = "wp core download --path='$codeName' --version='$wpVersion'" . ($force ? ' --force' : '');
@@ -84,28 +96,42 @@ echo outputDelimiter();
 echo '* Installing and configuring WordPress...' . PHP_EOL;
 
 passthru($cmd1);
+
 passthru($cmd2);
-passthru($cmd3);
+
+passthru($cmd3, $returnedVar);
+commandErrorHandler($cmd3, $returnedVar, 'WordPress not installed');
 
 /*
- * Install WC and demo products
+ * Install and configure WC
  */
 
 echo outputDelimiter();
-echo '* Installing and configuring WooCommerce, importing products...' . PHP_EOL;
+echo '* Installing and configuring WooCommerce...' . PHP_EOL;
 
-passthru("wp plugin install woocommerce --path='$codeName' --version=$wcVersion --activate"  . ($force ? ' --force' : ''));
+$cmd1 = "wp plugin install woocommerce --path='$codeName' --version=$wcVersion --activate"  . ($force ? ' --force' : '');
+$cmd2 = "wp plugin install wordpress-importer --path='$codeName' --activate" . ($force ? ' --force' : '');
+$cmd3 = "wp theme install storefront --path='$codeName' --activate" . ($force ? ' --force' : '');
 
-passthru("wp plugin install wordpress-importer --path='$codeName' --activate" . ($force ? ' --force' : ''));
+passthru($cmd1, $returnedVar);
+commandErrorHandler($cmd1, $returnedVar);
 
-passthru("wp theme install storefront --path='$codeName' --activate" . ($force ? ' --force' : ''));
+passthru($cmd2, $returnedVar);
+commandErrorHandler($cmd2, $returnedVar);
 
-echo 'Importing products...' . PHP_EOL;
+passthru($cmd3, $returnedVar);
+commandErrorHandler($cmd3, $returnedVar);
 
-$cmd4 = "wp import sample_products.xml --authors=create --path='$codeName'";
-echo exec($cmd4) . PHP_EOL;
+/*
+ * Import products from sample_products.xml
+ */
 
 echo outputDelimiter();
+echo '* Importing products from sample_products.xml...' . PHP_EOL;
+
+$cmd = "wp import sample_products.xml --authors=create --path='$codeName'";
+echo exec($cmd, $cmdOutput, $returnedVar) . PHP_EOL;
+commandErrorHandler($cmd, $returnedVar);
 
 /*
  * Install plugin from local zip
@@ -115,30 +141,31 @@ if (! isset($pluginPath)) {
     $pluginPath = 'wces.zip';
 }
 
+echo outputDelimiter();
 echo "* Installing plugin from zip: $pluginPath..." . PHP_EOL;
 
 if (is_file($pluginPath)) {
-    passthru("wp plugin install $pluginPath --path='$codeName' --activate" . ($force ? ' --force' : ''));
+	$cmd = "wp plugin install $pluginPath --path='$codeName' --activate" . ($force ? ' --force' : '');
+    passthru($cmd);
 } else {
     exit('Provide correct path to plugin\'s ZIP-file'. PHP_EOL);
 }
-
-echo outputDelimiter();
 
 /*
  * Include WP core
  */
 
+echo outputDelimiter();
 echo '* Including WP core...' . PHP_EOL;
 
 $cwd = getcwd();
 
 if ( ! chdir( $codeName ) ) {
-    exit("chdir error (dir: $codeName)" . PHP_EOL);
+	commandErrorHandler("chdir($codeName)", 1, "chdir error (dir: $codeName)");
 }
 
 if ( ! file_exists( 'wp-load.php' ) ) {
-    exit('wp-load.php not exists' . PHP_EOL);
+	commandErrorHandler("file_exists('wp-load.php')", 1, 'wp-load.php not exists');
 }
 
 // Connect to WP
@@ -151,40 +178,41 @@ if ( !isset($_SERVER['SERVER_NAME']) )      $_SERVER['SERVER_NAME'] = '';
 
 require 'wp-load.php';
 
-if ( ! defined('ABSPATH') ) {
-    exit('ABSPATH not defined' . PHP_EOL);
+if (! defined('ABSPATH') ) {
+    commandErrorHandler("defined('ABSPATH')", 1, 'ABSPATH not defined');
 }
 
-if (!function_exists('get_bloginfo')) {
-    exit('WordPress not included correctly' . PHP_EOL);
+if (! function_exists('get_bloginfo')) {
+	commandErrorHandler("function_exists('get_bloginfo')", 1, 'WordPress not included correctly');
 }
 
 $installedWpVersion = get_bloginfo('version');
 
 echo "WordPress v$installedWpVersion was included." . PHP_EOL;
 
-echo outputDelimiter();
-
 /*
  * Elasticsearch sync
  */
 
+echo outputDelimiter();
 echo '* Elasticsearch synchronization...' . PHP_EOL;
 
 $exec = [];
-exec("wp wces status", $exec); // todo create one param value returns mode (wp wces status --es)
+exec('wp wces status', $exec); // todo create one param value returns mode (wp wces status --es)
 $esConnected = substr($exec[0], 25, 2) === 'NO' ? false : true;
 
-if (! $esConnected) exit('Elasticsearch not connected, exit.' . PHP_EOL);
+if (! $esConnected) {
+	commandErrorHandler('wp wces status', 1, 'Elasticsearch not connected');
+}
 
 echo exec('wp wces index') . PHP_EOL;
 
-echo outputDelimiter();
 
 /*
  * Testing
  */
 
+echo outputDelimiter();
 echo '* Testing...' . PHP_EOL;
 
 $tests = [
@@ -264,7 +292,34 @@ echo PHP_EOL . 'Script completed.' . PHP_EOL;
  * @return string
  */
 function outputDelimiter() {
-    return str_repeat('=', 25) . PHP_EOL;
+//    return str_repeat('=', 25) . PHP_EOL;
+    return PHP_EOL;
+}
+
+/**
+ * @param string $cmd
+ * @param int $returnedCode
+ * @param string $errMsg
+ *
+ * @return void
+ */
+function commandErrorHandler($cmd, $returnedCode, $errMsg = '') {
+	if ($returnedCode !== 0) {
+		$backtrace = debug_backtrace();
+		$line = $backtrace[0]['line'];
+
+		$firstParamPosition = strpos($cmd, '--');
+
+		$substrLength = ($firstParamPosition === false) ? strlen($cmd) : $firstParamPosition;
+
+		$cmd = trim(substr($cmd, 0, $substrLength));
+
+		if ($errMsg !== '') {
+			echo "$errMsg." . PHP_EOL;
+		}
+		echo "Command '$cmd' returns error code: $returnedCode, exit. [line $line]" . PHP_EOL;
+		exit;
+	}
 }
 
 /**
@@ -276,7 +331,7 @@ function isArrayEquals($a, $b) {
     return (
         is_array($a)
         && is_array($b)
-        && count($a) == count($b)
+        && count($a) === count($b)
         && array_diff($a, $b) === array_diff($b, $a)
     );
 }
