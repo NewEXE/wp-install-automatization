@@ -53,17 +53,16 @@ $cliVersion  = exec($cmd, $cmdOutput, $returnedVar);
 
 commandErrorHandler($cmd, $returnedVar);
 
-echo '* Script environment: ' . PHP_EOL;
+echo ltrim(outputTitle('Script environment'));
 
-echo 'PHP '. phpversion() . PHP_EOL;
-echo $cliVersion . PHP_EOL;
+echo outputString('PHP '. phpversion());
+echo outputString($cliVersion);
 
 /*
  * Create dir and DB
  */
 
-echo outputDelimiter();
-echo '* Creating dir and DB... ' . PHP_EOL;
+echo outputTitle('Creating dir and DB');
 
 if (! is_dir($codeName)) {
     if (! mkdir($codeName, 0755)) {
@@ -82,7 +81,7 @@ try {
     exit('Database error: ' .  $e->getMessage() . PHP_EOL);
 }
 
-echo 'Successfully created.' . PHP_EOL;
+echo outputString('Successfully created');
 
 /*
  * Install and configure WP
@@ -92,8 +91,7 @@ $cmd1 = "wp core download --path='$codeName' --version='$wpVersion'" . ($force ?
 $cmd2 = "wp config create --path='$codeName' --dbname='$codeName' --dbuser='{$dbParams['user']}' --dbpass='{$dbParams['password']}' --dbhost='{$dbParams['host']}' --dbcharset='utf8'" . ($force ? ' --force' : '');
 $cmd3 = "wp core install --path='$codeName' --url='$url' --title='$title' --admin_user='$adminUser' --admin_password='$adminPassword' --admin_email='$adminEmail' --skip-email";
 
-echo outputDelimiter();
-echo '* Installing and configuring WordPress...' . PHP_EOL;
+echo outputTitle('Installing and configuring WordPress');
 
 passthru($cmd1);
 
@@ -106,8 +104,7 @@ commandErrorHandler($cmd3, $returnedVar, 'WordPress not installed');
  * Install and configure WC
  */
 
-echo outputDelimiter();
-echo '* Installing and configuring WooCommerce...' . PHP_EOL;
+echo outputTitle('Installing and configuring WooCommerce');
 
 $cmd1 = "wp plugin install woocommerce --path='$codeName' --version=$wcVersion --activate"  . ($force ? ' --force' : '');
 $cmd2 = "wp plugin install wordpress-importer --path='$codeName' --activate" . ($force ? ' --force' : '');
@@ -126,8 +123,7 @@ commandErrorHandler($cmd3, $returnedVar);
  * Import products from sample_products.xml
  */
 
-echo outputDelimiter();
-echo '* Importing products from sample_products.xml...' . PHP_EOL;
+echo outputTitle('Importing products from sample_products.xml');
 
 $cmd = "wp import sample_products.xml --authors=create --path='$codeName'";
 echo exec($cmd, $cmdOutput, $returnedVar) . PHP_EOL;
@@ -141,22 +137,20 @@ if (! isset($pluginPath)) {
     $pluginPath = 'wces.zip';
 }
 
-echo outputDelimiter();
-echo "* Installing plugin from zip: $pluginPath..." . PHP_EOL;
+echo outputTitle("Installing plugin from zip: $pluginPath");
 
 if (is_file($pluginPath)) {
 	$cmd = "wp plugin install $pluginPath --path='$codeName' --activate" . ($force ? ' --force' : '');
     passthru($cmd);
 } else {
-    exit('Provide correct path to plugin\'s ZIP-file'. PHP_EOL);
+	commandErrorHandler("is_file($pluginPath)", 1, 'Provide correct path to plugin\'s ZIP-file');
 }
 
 /*
  * Include WP core
  */
 
-echo outputDelimiter();
-echo '* Including WP core...' . PHP_EOL;
+echo outputTitle('Including WP core');
 
 $cwd = getcwd();
 
@@ -188,14 +182,13 @@ if (! function_exists('get_bloginfo')) {
 
 $installedWpVersion = get_bloginfo('version');
 
-echo "WordPress v$installedWpVersion was included." . PHP_EOL;
+echo outputString("WordPress v$installedWpVersion was included");
 
 /*
  * Elasticsearch sync
  */
 
-echo outputDelimiter();
-echo '* Elasticsearch synchronization...' . PHP_EOL;
+echo outputTitle('Elasticsearch synchronization');
 
 $exec = [];
 exec('wp wces status', $exec); // todo create one param value returns mode (wp wces status --es)
@@ -212,8 +205,7 @@ echo exec('wp wces index') . PHP_EOL;
  * Testing
  */
 
-echo outputDelimiter();
-echo '* Testing...' . PHP_EOL;
+echo outputTitle('Testing');
 
 $tests = [
     'wp_versions_equals' => [
@@ -269,34 +261,59 @@ foreach ($tests as $test) {
 
     $test['passed'] ? ++$passedCount : ++$failedCount;
 
-    echo $test['description'] . ' => ' . ($test['passed'] ? '✔ passed' : '× NOT PASSED') . PHP_EOL;
+    echo outputString($test['description'] . ' => ' . ($test['passed'] ? '✔ passed' : '× NOT PASSED'), false);
 }
 
 echo PHP_EOL;
 if ($allTestsCount === $passedCount) {
-    echo 'All tests have passed';
+    echo outputString('All tests have passed', false, false);
 } elseif($allTestsCount === $failedCount) {
-    echo 'All tests have failed';
+    echo outputString('All tests have failed', false, false);
 } else {
-	echo 'Some tests have failed';
+	echo outputString('Some tests have failed', false, false);
 }
-echo " (passed $passedCount/$allTestsCount)." . PHP_EOL;
+echo outputString(" (passed $passedCount/$allTestsCount)");
 
 chdir($cwd);
 
-echo PHP_EOL . 'Script completed.' . PHP_EOL;
+echo outputString(PHP_EOL . 'Script completed');
 
 /**
- * Returns script's section delimiter.
+ * @param string $str
+ * @param bool $withDot
+ * @param bool $withBreakline
  *
  * @return string
  */
-function outputDelimiter() {
-//    return str_repeat('=', 25) . PHP_EOL;
-    return PHP_EOL;
+function outputString($str, $withDot = true, $withBreakline = true) {
+	if ($withDot) {
+		$str = rtrim($str, '.') . '.';
+	}
+	if ($withBreakline) {
+		$str = $str . PHP_EOL;
+	}
+	return $str;
 }
 
 /**
+ * @param string $str
+ *
+ * @return string
+ */
+function outputTitle($str) {
+	$str = rtrim($str, '.');
+
+	//$outputDelimiter = str_repeat('=', 25) . PHP_EOL;
+	$outputDelimiter = PHP_EOL;
+
+	$str = $outputDelimiter . "* $str..." . PHP_EOL;
+
+	return $str;
+}
+
+/**
+ * Prints error and exit if returnedCode !== 0.
+ *
  * @param string $cmd
  * @param int $returnedCode
  * @param string $errMsg
