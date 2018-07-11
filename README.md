@@ -1,12 +1,12 @@
 # wp-install-automatization
-Script that install WordPress and Woocommercewith Sample Data (WC products).
 
-##Usage example:
+Script that install WordPress and WooCommerce with Sample Data (WC products).
 
-1. `php install-wp-wc.php 4.8.6 3.2.1 http://wp-install-automatization.test`
-   * 4.8.6 - WP version;
-   * 3.2.1 - WC version;
-   * provided url - WP will be available through this url plus slash and versions codename,
-in this example: http://wp-install-automatization.test/wp-4.8.6-wc-3.2.1/wp-admin
+## Usage examples:
+1. `php install-wp-wc.php --wp=4.8.6 --wc=3.2.1 --host=http://wp-install-automatization.test`<br />
+or without '=' arguments delimiter:<br />
+`php install-wp-wc.php --wp 4.8.6 --wc 3.2.1 --host http://wp-install-automatization.test`<br />
+In this example WP will be available through this url:<br />
+http://wp-install-automatization.test/wp-4.8.6-wc-3.2.1/wp-admin
 
-Admin credentials: `admin` / `admin`
+Default admin credentials: `admin` / `admin`

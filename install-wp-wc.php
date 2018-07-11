@@ -4,43 +4,68 @@
  * with Sample Data (WC products).
  *
  * Usage example:
- * php install-wp-wc.php 4.8.6 3.2.1 http://wp-install-automatization.test
- * where:
- * 4.8.6 - WP version;
- * 3.2.1 - WC version;
- * provided url - WP will be available through this url plus slash and versions codename,
- * in this example: http://wp-install-automatization.test/wp-4.8.6-wc-3.2.1/wp-admin
+ * php install-wp-wc.php --wp=4.8.6 --wc=3.2.1 --host=http://wp-install-automatization.test
+ * OR without '=' arguments delimiter
+ * php install-wp-wc.php --wp 4.8.6 --wc 3.2.1 --host http://wp-install-automatization.test
  *
- * Admin credentials: admin / admin
+ * In this example WP will be available through this url:
+ * http://wp-install-automatization.test/wp-4.8.6-wc-3.2.1/wp-admin
+ *
+ * Default admin credentials: admin / admin
  */
 
-if (! isset($argv[1], $argv[2], $argv[3])) exit('Provide WordPress and WooCommerce versions and domain name.' . PHP_EOL);
+/*
+ * Received arguments validation and their assignment
+ */
 
-$wpVersion = $argv[1];
-$wcVersion = $argv[2];
-$domainName = trim($argv[3], '/');
+$args = getopt('', [
+	// Required arguments
+	'wp:', 'wc:', 'host:',
+
+	// Optional arguments
+	'force',
+	'db_host:', 'db_user:', 'db_password:',
+	'admin_user:', 'admin_password:', 'admin_email:'
+]);
+
+if (! isset($args['wp'], $args['wc'], $args['host'])) {
+	exit(outputString('Provide WordPress version, WooCommerce versions and host name with http:// (https://)'));
+}
+
+if (isset($args['db_host'])) {
+	$parsed = parse_url($args['db_host']);
+	if (empty($parsed['scheme']) || empty($parsed['host'])) {
+		exit(outputString('Provide correct host name with http:// (https://)'));
+	}
+}
+
+if (isset($args['admin_email'])) {
+	if (! filter_var($args['admin_email'], FILTER_VALIDATE_EMAIL)) {
+		exit(outputString('Provide correct admin\'s email'));
+	}
+}
+
+// Script settings
+$force = (isset($args['force']));
+$wpVersion  = $args['wp'];
+$wcVersion  = $args['wc'];
+$domainName = trim($args['host'], '/');
 
 $codeName = "wp-$wpVersion-wc-$wcVersion";
 
-/*
- * Script settings
- */
-
-$force = false;
-
 // DB settings
 $dbParams = [
-    'host'      => 'localhost',
-    'user'      => 'homestead',
-    'password'  => 'secret',
+    'host'      => isset($args['db_host']) ? $args['db_host'] : 'localhost',
+    'user'      => isset($args['db_user']) ? $args['db_user'] : 'homestead',
+    'password'  => isset($args['db_password']) ? $args['db_password']: 'secret',
 ];
 
 // WP installation settings
-$url = "$domainName/$codeName";
-$title = "WP v$wpVersion, WC v$wcVersion";
-$adminUser = 'admin';
-$adminPassword = 'admin';
-$adminEmail = "admin@example.com";
+$url            = "$domainName/$codeName";
+$title          = "WP v$wpVersion, WC v$wcVersion";
+$adminUser      = isset($args['admin_user']) ? $args['admin_user'] : 'admin';
+$adminPassword  = isset($args['admin_password']) ? $args['admin_password'] : 'admin';
+$adminEmail     = isset($args['admin_email']) ? $args['admin_email'] : 'admin@example.com';
 
 /*
  * Get script environment info
@@ -226,10 +251,9 @@ $tests['wp_versions_equals']['passed'] = $wpVersion === $installedWpVersion;
 
 $tests['wc_versions_equals']['passed'] = $wcVersion === WC()->version;
 
-$args = [
-    's' => 'Beanie with Logo'
-];
-$products = wc_get_products($args);
+$products = wc_get_products([
+	's' => 'Beanie with Logo'
+]);
 
 $receivedNames = [];
 foreach ($products as $product) {
