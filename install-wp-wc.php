@@ -78,7 +78,7 @@ $cliVersion  = exec($cmd, $cmdOutput, $returnedVar);
 
 commandErrorHandler($cmd, $returnedVar);
 
-echo ltrim(outputTitle('Script environment'));
+echo outputString('Script environment:', false);
 
 echo outputString('PHP '. phpversion());
 echo outputString($cliVersion);
@@ -359,7 +359,7 @@ function commandErrorHandler($cmd, $returnedCode, $errMsg = '') {
 			echo "$errMsg." . PHP_EOL;
 		}
 		echo "Command '$cmd' returns error code: $returnedCode, exit. [line $line]" . PHP_EOL;
-		exit;
+		exit(1);
 	}
 }
 
