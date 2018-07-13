@@ -77,6 +77,13 @@ if (! empty($args['plugin_location'])) {
     exit(2);
 }
 
+if (! empty($args['wp_dir'])) {
+    if (! is_dir($args['wp_dir']) || ! is_writable($args['wp_dir']))  {
+        echo outputString("Directory {$args['wp_dir']} not exists or not writable. Provide correct 'wp_dir' param in config file'");
+        exit(2);
+    }
+}
+
 if (! empty($args['wc_import_xml'])) {
     if (! is_file($args['wc_import_xml']))  {
         echo outputString("File {$args['wc_import_xml']} not exists. Provide correct 'wc_import_xml' param in config file. For example, 'sample_products.xml'");
@@ -84,8 +91,8 @@ if (! empty($args['wc_import_xml'])) {
     }
 }
 
-if (! empty($args['admin_email'])) {
-	if (! filter_var($args['admin_email'], FILTER_VALIDATE_EMAIL)) {
+if (! empty($args['wp_admin_email'])) {
+	if (! filter_var($args['wp_admin_email'], FILTER_VALIDATE_EMAIL)) {
 		echo outputString("Provide correct admin's email");
 	    exit(2);
 	}
@@ -156,7 +163,8 @@ try {
     $sql = "CREATE DATABASE IF NOT EXISTS `{$dbParams['db']}`";
     $dbh->exec($sql);
 } catch (PDOException $e) {
-    exit('Database error: ' .  $e->getMessage() . PHP_EOL);
+    echo outputString('Database error: ' .  $e->getMessage());
+    exit(2);
 }
 
 echo outputString('Successfully created');
