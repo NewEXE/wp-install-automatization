@@ -1,17 +1,11 @@
 <?php
 /**
  * Script that install WordPress and WooCommerce
- * with Sample Data (WC products).
+ * with Sample Data (WC products) and doing some other work.
  *
- * Usage example:
- * php install-wp-wc.php --wp=4.8.6 --wc=3.2.1
- * OR without '=' arguments delimiter
- * php install-wp-wc.php --wp 4.8.6 --wc 3.2.1
+ * How to use:
  *
- * Optional arguments:
- * --force --config_path
- *
- * Set up at least required params in config file:
+ * 1. Set up at least required params in config file:
  * return [
  *  // ...
  *
@@ -21,14 +15,25 @@
  *  // ...
  * ];
  *
+ * 2. Execute this script.
+ *
+ * Required arguments:
+ * --wp             WordPress version to install.
+ * --wc             WooCommerce version to install.
+ *
+ * Optional arguments:
+ * --force          Set up for passing "force" argument to WP-CLI commands (where it's possible).
+ * --config_path    Set path to config file (default 'config.php' in script's folder).
+ *
  * In this example WP will be available through this url:
  * http://wp-install-automatization.test/wp-4.8.6-wc-3.2.1/wp-admin
  *
- * Default admin credentials: admin / admin
+ * Default admin credentials: admin / admin.
+ * You can set another credentials in config file.
  */
 
 /*
- * Received arguments validation and their assignment
+ * Received arguments validation and their assignment.
  */
 
 $args = getopt('', [
@@ -43,7 +48,7 @@ $args = getopt('', [
 if (! isset($args['wp'], $args['wc'])) {
     echo outputString('Some of required arguments not passed');
     echo outputString('Usage: --wp=4.8.1 --wc=3.2.1');
-    echo outputString('Do not forget set up config file.');
+    echo outputString('Do not forget set up config file');
     exit(2);
 }
 
@@ -54,12 +59,29 @@ $args = $args + require $configPath;
 if (! empty($args['wp_host'])) {
     $parsed = parse_url($args['wp_host']);
     if (empty($parsed['scheme']) || empty($parsed['host'])) {
-        echo outputString('Provide correct "wp_host" param in config file, with http:// (https://)');
+        echo outputString('Provide correct "wp_host" param in config file, with scheme (http:// or https://)');
         exit(2);
     }
 } else {
     echo outputString('Required param "wp_host" missed (in config file)');
     exit(2);
+}
+
+if (! empty($args['plugin_location'])) {
+    if (! is_file($args['plugin_location']))  {
+        echo outputString("File {$args['plugin_location']} not exists. Provide correct 'plugin_location' param in config file. For example, 'wces.zip'");
+        exit(2);
+    }
+} else {
+    echo outputString('Required param "plugin_location" missed (in config file)');
+    exit(2);
+}
+
+if (! empty($args['wc_import_xml'])) {
+    if (! is_file($args['wc_import_xml']))  {
+        echo outputString("File {$args['wc_import_xml']} not exists. Provide correct 'wc_import_xml' param in config file. For example, 'sample_products.xml'");
+        exit(2);
+    }
 }
 
 if (! empty($args['admin_email'])) {
@@ -92,6 +114,8 @@ $title          = "WP v$wpVersion, WC v$wcVersion";
 $adminUser      = ! empty($args['wp_admin_user']) ? $args['wp_admin_user'] : 'admin';
 $adminPassword  = ! empty($args['wp_admin_password']) ? $args['wp_admin_password'] : 'admin';
 $adminEmail     = ! empty($args['wp_admin_email']) ? $args['wp_admin_email'] : 'admin@example.com';
+
+$xmlFilePath    = $args['wc_import_xml'];
 
 // Plugin automatization settings
 $pluginPath = ! empty($args['plugin_location']) ? $args['plugin_location'] : '';
@@ -180,8 +204,6 @@ commandErrorHandler($cmd3, $returnedVar);
 echo outputTitle('Importing products from sample_products.xml');
 
 // todo add command for deleting all products
-
-$xmlFilePath = 'sample_products.xml';
 
 if (! file_exists($xmlFilePath)) {
     echo outputString("File $xmlFilePath not exists");
