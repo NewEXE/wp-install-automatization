@@ -7,8 +7,10 @@ return [
      *
      * Optional:
      * 'log_dir' Directory for creating log files (script's dir if empty).
+     * 'verbose' Set up to true for print advanced output.
      */
     'log_dir'       => '',
+    'verbose'       => true,
 
     /*
      * Database settings.

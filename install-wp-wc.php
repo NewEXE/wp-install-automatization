@@ -30,6 +30,12 @@
  *
  * Default admin credentials: admin / admin.
  * You can set another credentials in config file.
+ *
+ * Script return status codes:
+ * 0 - in case of all tests have passed.
+ * 1 - in case of critical internal WP-CLI command error.
+ * 2 - in case of incorrect params passing.
+ * 3 - in case of some or all tests have failed.
  */
 
 /*
@@ -46,9 +52,9 @@ $args = getopt('', [
 ]);
 
 if (! isset($args['wp'], $args['wc'])) {
-    echo outputString('Some of required arguments not passed');
-    echo outputString('Usage: --wp=4.8.1 --wc=3.2.1');
-    echo outputString('Do not forget set up config file');
+    echo outputError('Some of required arguments not passed');
+    echo outputError('Usage: --wp=4.8.1 --wc=3.2.1');
+    echo outputError('Do not forget set up config file');
     exit(2);
 }
 
@@ -59,47 +65,55 @@ $args = $args + require $configPath;
 if (! empty($args['wp_host'])) {
     $parsed = parse_url($args['wp_host']);
     if (empty($parsed['scheme']) || empty($parsed['host'])) {
-        echo outputString('Provide correct "wp_host" param in config file, with scheme (http:// or https://)');
+        echo outputError('Provide correct "wp_host" param in config file, with scheme (http:// or https://)');
         exit(2);
     }
 } else {
-    echo outputString('Required param "wp_host" missed (in config file)');
+    echo outputError('Required param "wp_host" missed (in config file)');
     exit(2);
 }
 
 if (! empty($args['plugin_location'])) {
     if (! is_file($args['plugin_location']))  {
-        echo outputString("File {$args['plugin_location']} not exists. Provide correct 'plugin_location' param in config file. For example, 'wces.zip'");
+        echo outputError("File {$args['plugin_location']} not exists. Provide correct 'plugin_location' param in config file. For example, 'wces.zip'");
         exit(2);
     }
 } else {
-    echo outputString('Required param "plugin_location" missed (in config file)');
+    echo outputError('Required param "plugin_location" missed (in config file)');
     exit(2);
 }
 
 if (! empty($args['wp_dir'])) {
     if (! is_dir($args['wp_dir']) || ! is_writable($args['wp_dir']))  {
-        echo outputString("Directory {$args['wp_dir']} not exists or not writable. Provide correct 'wp_dir' param in config file'");
+        echo outputError("Directory {$args['wp_dir']} not exists or not writable. Provide correct 'wp_dir' param in config file'");
         exit(2);
     }
 }
 
 if (! empty($args['wc_import_xml'])) {
     if (! is_file($args['wc_import_xml']))  {
-        echo outputString("File {$args['wc_import_xml']} not exists. Provide correct 'wc_import_xml' param in config file. For example, 'sample_products.xml'");
+        echo outputError("File {$args['wc_import_xml']} not exists. Provide correct 'wc_import_xml' param in config file. For example, 'sample_products.xml'");
         exit(2);
     }
 }
 
 if (! empty($args['wp_admin_email'])) {
 	if (! filter_var($args['wp_admin_email'], FILTER_VALIDATE_EMAIL)) {
-		echo outputString("Provide correct admin's email");
+		echo outputError("Provide correct admin's email");
 	    exit(2);
 	}
 }
 
 // Script settings
-$force      = (isset($args['force']));
+$force = (isset($args['force']));
+
+global $verbose;
+$verbose = (! empty($args['verbose'])) ? (bool) $args['verbose'] : false;
+
+$forceSuffix    = $force ? '--force' : '';
+//$devNullSuffix  = $verbose ? '' : '2>/dev/null';
+$devNullSuffix  = $verbose ? '' : '>/dev/null 2>/dev/null';
+
 $wpVersion  = $args['wp'];
 $wcVersion  = $args['wc'];
 $domainName = trim($args['wp_host'], '/');
@@ -122,7 +136,7 @@ $adminUser      = ! empty($args['wp_admin_user']) ? $args['wp_admin_user'] : 'ad
 $adminPassword  = ! empty($args['wp_admin_password']) ? $args['wp_admin_password'] : 'admin';
 $adminEmail     = ! empty($args['wp_admin_email']) ? $args['wp_admin_email'] : 'admin@example.com';
 
-$xmlFilePath    = $args['wc_import_xml'];
+$xmlFilePath    = ! empty($args['wc_import_xml']) ? $args['wc_import_xml'] : 'sample_products.xml';
 
 // Plugin automatization settings
 $pluginPath = ! empty($args['plugin_location']) ? $args['plugin_location'] : '';
@@ -132,11 +146,12 @@ $pluginPath = ! empty($args['plugin_location']) ? $args['plugin_location'] : '';
  */
 
 $cmd         = 'wp cli version';
-$cmdOutput   = [];
+$execOutput   = [];
 $returnedVar = 0;
-$cliVersion  = exec($cmd, $cmdOutput, $returnedVar);
+$cliVersion  = exec($cmd, $execOutput, $returnedVar);
 
-commandErrorHandler($cmd, $returnedVar);
+commandErrorHandler($cmd, $returnedVar, $execOutput);
+$execOutput = null;
 
 echo outputString('Script environment:', false);
 
@@ -163,7 +178,7 @@ try {
     $sql = "CREATE DATABASE IF NOT EXISTS `{$dbParams['db']}`";
     $dbh->exec($sql);
 } catch (PDOException $e) {
-    echo outputString('Database error: ' .  $e->getMessage());
+    echo outputError('Database error: ' .  $e->getMessage());
     exit(2);
 }
 
@@ -173,17 +188,17 @@ echo outputString('Successfully created');
  * Install and configure WP
  */
 
-$cmd1 = "wp core download --path='$wpDir' --version='$wpVersion'" . ($force ? ' --force' : '');
-$cmd2 = "wp config create --path='$wpDir' --dbname='{$dbParams['db']}' --dbuser='{$dbParams['user']}' --dbpass='{$dbParams['password']}' --dbhost='{$dbParams['host']}' --dbcharset='utf8'" . ($force ? ' --force' : '');
-$cmd3 = "wp core install --path='$wpDir' --url='$url' --title='$title' --admin_user='$adminUser' --admin_password='$adminPassword' --admin_email='$adminEmail' --skip-email";
+$cmd1 = "wp core download --path='$wpDir' --version='$wpVersion' $forceSuffix $devNullSuffix";
+$cmd2 = "wp config create --path='$wpDir' --dbname='{$dbParams['db']}' --dbuser='{$dbParams['user']}' --dbpass='{$dbParams['password']}' --dbhost='{$dbParams['host']}' --dbcharset='utf8' $forceSuffix $devNullSuffix";
+$cmd3 = "wp core install --path='$wpDir' --url='$url' --title='$title' --admin_user='$adminUser' --admin_password='$adminPassword' --admin_email='$adminEmail' --skip-email $devNullSuffix";
 
 echo outputTitle('Installing and configuring WordPress');
 
-passthru($cmd1);
+customPassthru($cmd1, $returnedVar);
 
-passthru($cmd2);
+customPassthru($cmd2);
 
-passthru($cmd3, $returnedVar);
+customPassthru($cmd3, $returnedVar);
 commandErrorHandler($cmd3, $returnedVar, 'WordPress not installed');
 
 /*
@@ -192,56 +207,66 @@ commandErrorHandler($cmd3, $returnedVar, 'WordPress not installed');
 
 echo outputTitle('Installing and configuring WooCommerce');
 
-$cmd1 = "wp plugin install woocommerce --path='$wpDir' --version=$wcVersion --activate"  . ($force ? ' --force' : '');
-$cmd2 = "wp plugin install wordpress-importer --path='$wpDir' --activate" . ($force ? ' --force' : '');
-$cmd3 = "wp theme install storefront --path='$wpDir' --activate" . ($force ? ' --force' : '');
+$cmd1 = "wp plugin install woocommerce --path='$wpDir' --version=$wcVersion --activate $forceSuffix $devNullSuffix";
+$cmd2 = "wp plugin install wordpress-importer --path='$wpDir' --activate $forceSuffix $devNullSuffix";
+$cmd3 = "wp theme install storefront --path='$wpDir' --activate  $forceSuffix $devNullSuffix";
 
-passthru($cmd1, $returnedVar);
+customPassthru($cmd1, $returnedVar);
 commandErrorHandler($cmd1, $returnedVar);
 
-passthru($cmd2, $returnedVar);
+customPassthru($cmd2, $returnedVar);
 commandErrorHandler($cmd2, $returnedVar);
 
-passthru($cmd3, $returnedVar);
+$returnedVar = 0;
+customPassthru($cmd3, $returnedVar);
 commandErrorHandler($cmd3, $returnedVar);
 
 /*
- * Import products from sample_products.xml
+ * Import products from XML file
  */
 
-echo outputTitle('Importing products from sample_products.xml');
+echo outputTitle("Importing products from provided $xmlFilePath file");
 
 // todo add command for deleting all products
 
 if (! file_exists($xmlFilePath)) {
-    echo outputString("File $xmlFilePath not exists");
+    echo outputError("File $xmlFilePath not exists");
     exit(2);
 }
-$cmd = "wp import $xmlFilePath --authors=create --path='$wpDir'";
-echo exec($cmd, $cmdOutput, $returnedVar) . PHP_EOL;
-commandErrorHandler($cmd, $returnedVar);
+
+$cmd = "wp import $xmlFilePath --authors=create --path='$wpDir' $devNullSuffix";
+
+$execOutput = [];
+$exec = exec($cmd, $execOutput, $returnedVar);
+echo outputString($exec);
+
+commandErrorHandler($cmd, $returnedVar, $exec);
+$execOutput = null;
 
 /*
  * Install plugin from local zip
  */
 
 if (empty($pluginPath)) {
-    echo outputString("Provide correct plugin path in config");
+    echo outputError("Provide correct 'plugin_path' in config");
     exit(2);
 }
 
 echo outputTitle("Installing plugin from zip: $pluginPath");
 
 if (is_file($pluginPath)) {
-	$cmd = "wp plugin install $pluginPath --path='$wpDir' --activate" . ($force ? ' --force' : '');
-    passthru($cmd);
+	$cmd = "wp plugin install $pluginPath --path='$wpDir' --activate $forceSuffix $devNullSuffix";
+    customPassthru($cmd);
 } else {
 	commandErrorHandler("is_file($pluginPath)", 1, 'Provide correct path to plugin\'s ZIP-file');
 }
 
-$cmd = "wp plugin activate wces --path='$wpDir'";
-exec($cmd, $cmdOutput, $returnedVar);
+$execOutput = [];
+$cmd = "wp plugin activate wces --path='$wpDir' $devNullSuffix";
+exec($cmd, $execOutput, $returnedVar);
+
 commandErrorHandler($cmd, $returnedVar);
+$execOutput = null;
 
 
 /*
@@ -288,15 +313,19 @@ echo outputString("WordPress v$installedWpVersion was included");
 
 echo outputTitle('Elasticsearch synchronization');
 
-$exec = [];
-exec('wp wces status', $exec); // todo create one param value returns mode (wp wces status --es)
-$esConnected = substr($exec[0], 25, 2) !== 'NO' ? true : false;
+$execOutput = [];
+$cmd = 'wp wces status';
+exec($cmd, $execOutput); // todo create one param value returns mode (wp wces status --es)
+$esConnected = substr($execOutput[0], 25, 2) !== 'NO' ? true : false;
 
 if (! $esConnected) {
-	commandErrorHandler('wp wces status', 1, 'Elasticsearch not connected');
+	commandErrorHandler($cmd, 1, 'Elasticsearch not connected');
 }
+$execOutput = null;
 
-echo exec('wp wces index') . PHP_EOL;
+$cmd = 'wp wces index';
+$exec = exec($cmd);
+echo outputString($exec);
 
 
 /*
@@ -352,6 +381,7 @@ $expectedNames = [
 $tests['search_results_equals']['passed'] = isArrayEquals($receivedNames, $expectedNames);
 
 $passedCount = $failedCount = $allTestsCount = 0;
+$scriptResultCode = 0;
 
 foreach ($tests as $test) {
     $allTestsCount++;
@@ -361,19 +391,44 @@ foreach ($tests as $test) {
     echo outputString($test['description'] . ' => ' . ($test['passed'] ? '✔ passed' : '× NOT PASSED'), false);
 }
 
-echo PHP_EOL;
+echo outputString('', false);
 if ($allTestsCount === $passedCount) {
-    echo outputString('All tests have passed', false, false);
+    $scriptResultCode = 0;
+    echo outputError('All tests have passed', false, false);
 } elseif($allTestsCount === $failedCount) {
-    echo outputString('All tests have failed', false, false);
+    $scriptResultCode = 3;
+    echo outputError('All tests have failed', false, false);
 } else {
-	echo outputString('Some tests have failed', false, false);
+    $scriptResultCode = 3;
+	echo outputError('Some tests have failed', false, false);
 }
-echo outputString(" (passed $passedCount/$allTestsCount)");
+echo outputError(" (passed $passedCount/$allTestsCount)");
 
 chdir($cwd);
 
-echo outputString(PHP_EOL . 'Script completed');
+echo outputString('', false);
+echo outputString('Script completed with status code ' . $scriptResultCode);
+
+exit($scriptResultCode);
+
+/**
+ * @param string $cmd
+ * @param int|null $returnVar
+ *
+ * @return void
+ */
+function customPassthru($cmd, &$returnVar = null) {
+    global $verbose;
+
+    if ($verbose) {
+        passthru($cmd, $returnVar);
+    } else {
+        $tempOutput = [];
+        exec($cmd, $tempOutput, $returnVar);
+        $tempOutput = null;
+        unset($tempOutput);
+    }
+}
 
 /**
  * @param string $str
@@ -383,7 +438,11 @@ echo outputString(PHP_EOL . 'Script completed');
  * @return string
  */
 function outputString($str, $withDot = true, $withBreakline = true) {
-	if ($withDot) {
+    global $verbose;
+
+    if (! $verbose) return '';
+
+    if ($withDot) {
 		$str = rtrim($str, '.') . '.';
 	}
 	if ($withBreakline) {
@@ -394,11 +453,32 @@ function outputString($str, $withDot = true, $withBreakline = true) {
 
 /**
  * @param string $str
+ * @param bool $withDot
+ * @param bool $withBreakline
+ *
+ * @return string
+ */
+function outputError($str, $withDot = true, $withBreakline = true) {
+    if ($withDot) {
+        $str = rtrim($str, '.') . '.';
+    }
+    if ($withBreakline) {
+        $str = $str . PHP_EOL;
+    }
+    return $str;
+}
+
+/**
+ * @param string $str
  *
  * @return string
  */
 function outputTitle($str) {
-	$str = rtrim($str, '.');
+    global $verbose;
+
+    if (! $verbose) return '';
+
+    $str = rtrim($str, '.');
 
 	//$outputDelimiter = str_repeat('=', 25) . PHP_EOL;
 	$outputDelimiter = PHP_EOL;
