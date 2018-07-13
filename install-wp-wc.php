@@ -4,9 +4,22 @@
  * with Sample Data (WC products).
  *
  * Usage example:
- * php install-wp-wc.php --wp=4.8.6 --wc=3.2.1 --host=http://wp-install-automatization.test
+ * php install-wp-wc.php --wp=4.8.6 --wc=3.2.1
  * OR without '=' arguments delimiter
- * php install-wp-wc.php --wp 4.8.6 --wc 3.2.1 --host http://wp-install-automatization.test
+ * php install-wp-wc.php --wp 4.8.6 --wc 3.2.1
+ *
+ * Optional arguments:
+ * --force --config_path
+ *
+ * Set up at least required params in config file:
+ * return [
+ *  // ...
+ *
+ *  'wp_host'         => 'http://wp-install-automatization.test',
+ *  'plugin_location' => 'wces.zip',
+ *
+ *  // ...
+ * ];
  *
  * In this example WP will be available through this url:
  * http://wp-install-automatization.test/wp-4.8.6-wc-3.2.1/wp-admin
@@ -20,52 +33,68 @@
 
 $args = getopt('', [
 	// Required arguments
-	'wp:', 'wc:', 'host:',
+	'wp:', 'wc:',
 
 	// Optional arguments
 	'force',
-	'db_host:', 'db_user:', 'db_password:',
-	'admin_user:', 'admin_password:', 'admin_email:'
+	'config_path:',
 ]);
 
-if (! isset($args['wp'], $args['wc'], $args['host'])) {
-	exit(outputString('Provide WordPress version, WooCommerce versions and host name with http:// (https://)'));
+if (! isset($args['wp'], $args['wc'])) {
+    echo outputString('Some of required arguments not passed');
+    echo outputString('Usage: --wp=4.8.1 --wc=3.2.1');
+    echo outputString('Do not forget set up config file.');
+    exit(2);
 }
 
-if (isset($args['db_host'])) {
-	$parsed = parse_url($args['db_host']);
-	if (empty($parsed['scheme']) || empty($parsed['host'])) {
-		exit(outputString('Provide correct host name with http:// (https://)'));
-	}
+$configPath = isset($args['config_path']) ? $args['config_path'] : 'config.php';
+
+$args = $args + require $configPath;
+
+if (! empty($args['wp_host'])) {
+    $parsed = parse_url($args['wp_host']);
+    if (empty($parsed['scheme']) || empty($parsed['host'])) {
+        echo outputString('Provide correct "wp_host" param in config file, with http:// (https://)');
+        exit(2);
+    }
+} else {
+    echo outputString('Required param "wp_host" missed (in config file)');
+    exit(2);
 }
 
-if (isset($args['admin_email'])) {
+if (! empty($args['admin_email'])) {
 	if (! filter_var($args['admin_email'], FILTER_VALIDATE_EMAIL)) {
-		exit(outputString('Provide correct admin\'s email'));
+		echo outputString("Provide correct admin's email");
+	    exit(2);
 	}
 }
 
 // Script settings
-$force = (isset($args['force']));
+$force      = (isset($args['force']));
 $wpVersion  = $args['wp'];
 $wcVersion  = $args['wc'];
-$domainName = trim($args['host'], '/');
+$domainName = trim($args['wp_host'], '/');
 
 $codeName = "wp-$wpVersion-wc-$wcVersion";
 
 // DB settings
 $dbParams = [
-    'host'      => isset($args['db_host']) ? $args['db_host'] : 'localhost',
-    'user'      => isset($args['db_user']) ? $args['db_user'] : 'homestead',
-    'password'  => isset($args['db_password']) ? $args['db_password']: 'secret',
+    'db'        => $codeName,
+    'host'      => ! empty($args['db_host']) ? $args['db_host'] : 'localhost',
+    'user'      => ! empty($args['db_user']) ? $args['db_user'] : 'root',
+    'password'  => ! empty($args['db_password']) ? $args['db_password']: '',
 ];
 
 // WP installation settings
+$wpDir          = ! empty($args['wp_dir']) ? rtrim($args['wp_dir'], '/\\') . DIRECTORY_SEPARATOR . $codeName : $codeName;
 $url            = "$domainName/$codeName";
 $title          = "WP v$wpVersion, WC v$wcVersion";
-$adminUser      = isset($args['admin_user']) ? $args['admin_user'] : 'admin';
-$adminPassword  = isset($args['admin_password']) ? $args['admin_password'] : 'admin';
-$adminEmail     = isset($args['admin_email']) ? $args['admin_email'] : 'admin@example.com';
+$adminUser      = ! empty($args['wp_admin_user']) ? $args['wp_admin_user'] : 'admin';
+$adminPassword  = ! empty($args['wp_admin_password']) ? $args['wp_admin_password'] : 'admin';
+$adminEmail     = ! empty($args['wp_admin_email']) ? $args['wp_admin_email'] : 'admin@example.com';
+
+// Plugin automatization settings
+$pluginPath = ! empty($args['plugin_location']) ? $args['plugin_location'] : '';
 
 /*
  * Get script environment info
@@ -89,9 +118,9 @@ echo outputString($cliVersion);
 
 echo outputTitle('Creating dir and DB');
 
-if (! is_dir($codeName)) {
-    if (! mkdir($codeName, 0755)) {
-	    commandErrorHandler("mkdir($codeName, 0755)", 1);
+if (! is_dir($wpDir)) {
+    if (! mkdir($wpDir, 0755)) {
+	    commandErrorHandler("mkdir($wpDir, 0755)", 1);
     }
 }
 
@@ -100,7 +129,7 @@ try {
     $dbh->exec("set names utf8");
     $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-    $sql = "CREATE DATABASE IF NOT EXISTS `$codeName`";
+    $sql = "CREATE DATABASE IF NOT EXISTS `{$dbParams['db']}`";
     $dbh->exec($sql);
 } catch (PDOException $e) {
     exit('Database error: ' .  $e->getMessage() . PHP_EOL);
@@ -112,9 +141,9 @@ echo outputString('Successfully created');
  * Install and configure WP
  */
 
-$cmd1 = "wp core download --path='$codeName' --version='$wpVersion'" . ($force ? ' --force' : '');
-$cmd2 = "wp config create --path='$codeName' --dbname='$codeName' --dbuser='{$dbParams['user']}' --dbpass='{$dbParams['password']}' --dbhost='{$dbParams['host']}' --dbcharset='utf8'" . ($force ? ' --force' : '');
-$cmd3 = "wp core install --path='$codeName' --url='$url' --title='$title' --admin_user='$adminUser' --admin_password='$adminPassword' --admin_email='$adminEmail' --skip-email";
+$cmd1 = "wp core download --path='$wpDir' --version='$wpVersion'" . ($force ? ' --force' : '');
+$cmd2 = "wp config create --path='$wpDir' --dbname='{$dbParams['db']}' --dbuser='{$dbParams['user']}' --dbpass='{$dbParams['password']}' --dbhost='{$dbParams['host']}' --dbcharset='utf8'" . ($force ? ' --force' : '');
+$cmd3 = "wp core install --path='$wpDir' --url='$url' --title='$title' --admin_user='$adminUser' --admin_password='$adminPassword' --admin_email='$adminEmail' --skip-email";
 
 echo outputTitle('Installing and configuring WordPress');
 
@@ -131,9 +160,9 @@ commandErrorHandler($cmd3, $returnedVar, 'WordPress not installed');
 
 echo outputTitle('Installing and configuring WooCommerce');
 
-$cmd1 = "wp plugin install woocommerce --path='$codeName' --version=$wcVersion --activate"  . ($force ? ' --force' : '');
-$cmd2 = "wp plugin install wordpress-importer --path='$codeName' --activate" . ($force ? ' --force' : '');
-$cmd3 = "wp theme install storefront --path='$codeName' --activate" . ($force ? ' --force' : '');
+$cmd1 = "wp plugin install woocommerce --path='$wpDir' --version=$wcVersion --activate"  . ($force ? ' --force' : '');
+$cmd2 = "wp plugin install wordpress-importer --path='$wpDir' --activate" . ($force ? ' --force' : '');
+$cmd3 = "wp theme install storefront --path='$wpDir' --activate" . ($force ? ' --force' : '');
 
 passthru($cmd1, $returnedVar);
 commandErrorHandler($cmd1, $returnedVar);
@@ -150,7 +179,15 @@ commandErrorHandler($cmd3, $returnedVar);
 
 echo outputTitle('Importing products from sample_products.xml');
 
-$cmd = "wp import sample_products.xml --authors=create --path='$codeName'";
+// todo add command for deleting all products
+
+$xmlFilePath = 'sample_products.xml';
+
+if (! file_exists($xmlFilePath)) {
+    echo outputString("File $xmlFilePath not exists");
+    exit(2);
+}
+$cmd = "wp import $xmlFilePath --authors=create --path='$wpDir'";
 echo exec($cmd, $cmdOutput, $returnedVar) . PHP_EOL;
 commandErrorHandler($cmd, $returnedVar);
 
@@ -158,18 +195,24 @@ commandErrorHandler($cmd, $returnedVar);
  * Install plugin from local zip
  */
 
-if (! isset($pluginPath)) {
-    $pluginPath = 'wces.zip';
+if (empty($pluginPath)) {
+    echo outputString("Provide correct plugin path in config");
+    exit(2);
 }
 
 echo outputTitle("Installing plugin from zip: $pluginPath");
 
 if (is_file($pluginPath)) {
-	$cmd = "wp plugin install $pluginPath --path='$codeName' --activate" . ($force ? ' --force' : '');
+	$cmd = "wp plugin install $pluginPath --path='$wpDir' --activate" . ($force ? ' --force' : '');
     passthru($cmd);
 } else {
 	commandErrorHandler("is_file($pluginPath)", 1, 'Provide correct path to plugin\'s ZIP-file');
 }
+
+$cmd = "wp plugin activate wces --path='$wpDir'";
+exec($cmd, $cmdOutput, $returnedVar);
+commandErrorHandler($cmd, $returnedVar);
+
 
 /*
  * Include WP core
@@ -179,8 +222,8 @@ echo outputTitle('Including WP core');
 
 $cwd = getcwd();
 
-if ( ! chdir( $codeName ) ) {
-	commandErrorHandler("chdir($codeName)", 1, "chdir error (dir: $codeName)");
+if ( ! chdir( $wpDir ) ) {
+	commandErrorHandler("chdir($wpDir)", 1, "chdir error (dir: $wpDir)");
 }
 
 if ( ! file_exists( 'wp-load.php' ) ) {
@@ -217,7 +260,7 @@ echo outputTitle('Elasticsearch synchronization');
 
 $exec = [];
 exec('wp wces status', $exec); // todo create one param value returns mode (wp wces status --es)
-$esConnected = substr($exec[0], 25, 2) === 'NO' ? false : true;
+$esConnected = substr($exec[0], 25, 2) !== 'NO' ? true : false;
 
 if (! $esConnected) {
 	commandErrorHandler('wp wces status', 1, 'Elasticsearch not connected');
