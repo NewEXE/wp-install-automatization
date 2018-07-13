@@ -343,8 +343,12 @@ $tests = [
         'description' => 'Required and installed WC versions are equals',
         'passed' => false,
     ],
-    'search_results_equals' => [
-        'description' => 'Expected and received products are equals',
+    'search_results1_equals' => [
+        'description' => 'Expected and received products are equals (1)',
+        'passed' => false,
+    ],
+    'search_results2_equals' => [
+        'description' => 'Expected and received products are equals (2)',
         'passed' => false,
     ],
 ];
@@ -353,32 +357,45 @@ $tests['wp_versions_equals']['passed'] = $wpVersion === $installedWpVersion;
 
 $tests['wc_versions_equals']['passed'] = $wcVersion === WC()->version;
 
-$products = wc_get_products([
-	's' => 'Beanie with Logo'
+$products = get_posts([
+    's'         => 'Beanie with Logo',
+    'post_type' => 'product',
 ]);
 
 $receivedNames = [];
 foreach ($products as $product) {
-    $receivedNames[] = $product->get_name();
+    $receivedNames[$product->post_name] = $product->post_title;
 }
 
 $expectedNames = [
-    'WordPress Pennant',
-    'Logo Collection',
-    'Beanie with Logo',
-    'T-Shirt with Logo',
-    'Album',
-    'Single',
-    'Polo',
-    'Long Sleeve Tee',
-    'Hoodie with Pocket',
-    'Hoodie with Zipper',
+    'beanie-with-logo'  => 'Beanie with Logo',
+    't-shirt-with-logo' => 'T-Shirt with Logo',
+    'beanie'            => 'Beanie',
+    'hoodie-with-pocket'=> 'Hoodie with Pocket',
+    'hoodie-with-logo'  => 'Hoodie with Logo',
 ];
 
 // if Elasticsearch is off:
-// Beanie with Logo
+// 'beanie-with-logo'  => 'Beanie with Logo'
 
-$tests['search_results_equals']['passed'] = isArrayEquals($receivedNames, $expectedNames);
+$tests['search_results1_equals']['passed'] = isArrayEquals($receivedNames, $expectedNames);
+
+$products = get_posts([
+    's'           => 'Beanie with Logo',
+    'post_type'   => 'product',
+    'product_cat' => 'clothing',
+]);
+
+$receivedNames = [];
+foreach ($products as $product) {
+    $receivedNames[$product->post_name] = $product->post_title;
+}
+
+$expectedNames = [
+    'logo-collection' => 'Logo Collection',
+];
+
+$tests['search_results2_equals']['passed'] = isArrayEquals($receivedNames, $expectedNames);
 
 $passedCount = $failedCount = $allTestsCount = 0;
 $scriptResultCode = 0;
