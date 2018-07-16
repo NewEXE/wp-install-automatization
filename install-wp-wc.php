@@ -433,14 +433,14 @@ $tests['search_results2_equals']['passed'] = isArrayEquals($receivedNames, $expe
 $passedCount = $failedCount = $allTestsCount = 0;
 $scriptResultCode = 0;
 
-$logTestsData = [];
+$logTestsData = '';
 foreach ($tests as $test) {
     $allTestsCount++;
 
     $test['passed'] ? ++$passedCount : ++$failedCount;
 
     $str = outputString($test['description'] . ' => ' . ($test['passed'] ? '✔ passed' : '× NOT PASSED'), false);
-    $logTestsData[] = $str;
+    $logTestsData .= $str;
     echo $str;
 }
 logData($logTestsData);
@@ -573,7 +573,8 @@ function outputSummary($allTestsCount, $passedCount, $failedCount, $stuff) {
     extract($stuff);
 
     if (!isset($installedWpVersion, $installedWcVersion)) {
-        commandErrorHandler('outputSummary', 1, 'Missed required params for outputSummary call. Provide $installedWpVersion and $installedWcVersion in $stuff array');
+        commandErrorHandler('outputSummary', 1,
+            'Missed required params for outputSummary call. Provide $installedWpVersion and $installedWcVersion in $stuff array');
     }
 
     $code = 0;
