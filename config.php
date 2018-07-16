@@ -6,10 +6,10 @@ return [
      * Script settings.
      *
      * Optional:
-     * 'log_dir' Directory for creating log files (script's dir if empty).
+     * 'logs_dir' Directory for creating log files (dir 'logs' if empty).
      * 'verbose' Set up to true for print advanced output.
      */
-    'log_dir'       => '',
+    'logs_dir'      => '',
     'verbose'       => true,
 
     /*

@@ -42,6 +42,20 @@
  * Received arguments validation and their assignment.
  */
 
+/**
+ * Log file for current script's run.
+ *
+ * @var string
+ */
+global $logFile;
+
+/**
+ * Verbose mode flag.
+ *
+ * @var bool
+ */
+global $verbose;
+
 $args = getopt('', [
 	// Required arguments
 	'wp:', 'wc:',
@@ -61,6 +75,28 @@ if (! isset($args['wp'], $args['wc'])) {
 $configPath = ! empty($args['config_path']) ? $args['config_path'] : 'config.php';
 
 $args = $args + require $configPath;
+
+if (! empty($args['logs_dir']) ) {
+    $args['logs_dir'] = realpath($args['logs_dir']);
+    if (! is_dir($args['logs_dir']) || ! is_writable($args['logs_dir']) ) {
+        echo outputError("Directory for logs {$args['logs_dir']} not exists or not writable. Provide correct 'logs_dir' param in config file");
+        exit(2);
+    }
+
+    $logsDir = rtrim($args['logs_dir'], '/\\');
+} else {
+    $defaultLogsDir = realpath('logs');
+    if (! is_dir('logs')) {
+        if (! @mkdir('logs')) {
+            echo outputError("mkdir('$defaultLogsDir') fail. Check script directory for write permissions");
+            exit(2);
+        }
+    }
+
+    $logsDir = $defaultLogsDir;
+}
+
+$logFile = $logsDir . DIRECTORY_SEPARATOR . date('Ymd-His') . '.log';
 
 if (! empty($args['wp_host'])) {
     $parsed = parse_url($args['wp_host']);
@@ -104,19 +140,9 @@ if (! empty($args['wp_admin_email'])) {
 	}
 }
 
-if (! empty($args['log_dir']) ) {
-    if (! is_dir($args['log_dir']) || ! is_writable($args['log_dir']) ) {
-        echo outputError("Directory for logs {$args['log_dir']} not exists or not writable. Provide correct 'log_dir' param in config file");
-        exit(2);
-    }
-}
-
 // Script settings
 $force = (isset($args['force']));
 
-$logDir = $args['log_dir'];
-
-global $verbose;
 $verbose = (! empty($args['verbose'])) ? (bool) $args['verbose'] : false;
 
 $forceSuffix    = $force ? '--force' : '';
@@ -407,13 +433,17 @@ $tests['search_results2_equals']['passed'] = isArrayEquals($receivedNames, $expe
 $passedCount = $failedCount = $allTestsCount = 0;
 $scriptResultCode = 0;
 
+$logTestsData = [];
 foreach ($tests as $test) {
     $allTestsCount++;
 
     $test['passed'] ? ++$passedCount : ++$failedCount;
 
-    echo outputString($test['description'] . ' => ' . ($test['passed'] ? '✔ passed' : '× NOT PASSED'), false);
+    $str = outputString($test['description'] . ' => ' . ($test['passed'] ? '✔ passed' : '× NOT PASSED'), false);
+    $logTestsData[] = $str;
+    echo $str;
 }
+logData($logTestsData);
 
 $outputStuff = [
     'installedWpVersion' => $installedWpVersion,
@@ -423,6 +453,8 @@ $outputStuff = [
 $outputSummary = outputSummary($allTestsCount, $passedCount, $failedCount, $outputStuff);
 
 echo $outputSummary['message'];
+
+logData($outputSummary['message']);
 
 exit($outputSummary['code']);
 
@@ -443,6 +475,35 @@ function customPassthru($cmd, &$returnVar = null) {
         $tempOutput = null;
         unset($tempOutput);
     }
+}
+
+/**
+ * @param mixed $data
+ *
+ * @return void
+ */
+function logData($data) {
+    global $logFile;
+
+    if (is_null($logFile)) return;
+
+    $data_type = gettype($data);
+    if ( is_array($data) ) {
+        $data = json_encode($data);
+    } elseif ( is_object($data) ) {
+        $data = print_r($data, true);
+    } elseif (is_resource($data)) {
+        $data_type .= ' (' . get_resource_type($data) . ')';
+        $data = (string) $data;
+    } else {
+        if ( ! settype($data, 'string') ) {
+            $data = 'Logger error: can not convert input data to string';
+        }
+    }
+    $data = '[' . date('Y-m-d H:i:s') . ']' . " [$data_type] " . $data;
+    $data .= PHP_EOL;
+
+    file_put_contents($logFile, $data, FILE_APPEND);
 }
 
 /**
@@ -480,6 +541,7 @@ function outputError($str, $withDot = true, $withBreakline = true) {
     if ($withBreakline) {
         $str = $str . PHP_EOL;
     }
+    logData($str);
     return $str;
 }
 
@@ -540,7 +602,7 @@ function outputSummary($allTestsCount, $passedCount, $failedCount, $stuff) {
             'apache2ctl -v 2>/dev/null',
             'httpd -v 2>/dev/null',
             '/usr/sbin/apache2 -v 2>/dev/null',
-            'dpkg -l | grep apache',
+            'dpkg -l | grep apache 2>/dev/null',
         ];
 
         foreach ($commands as $command) {
@@ -588,7 +650,12 @@ function commandErrorHandler($cmd, $returnedCode, $errMsg = '') {
 			echo "$errMsg." . PHP_EOL;
 		}
 		echo "Command '$cmd' returns error code: $returnedCode, exit. [line $line]" . PHP_EOL;
-		exit(1);
+
+		$logMsg = "Command '$cmd' returns error code: $returnedCode, exit. [line $line]" . PHP_EOL;
+        $logMsg .= "$errMsg.";
+        logData($logMsg);
+
+        exit(1);
 	}
 }
 
