@@ -58,7 +58,7 @@ if (! isset($args['wp'], $args['wc'])) {
     exit(2);
 }
 
-$configPath = isset($args['config_path']) ? $args['config_path'] : 'config.php';
+$configPath = ! empty($args['config_path']) ? $args['config_path'] : 'config.php';
 
 $args = $args + require $configPath;
 
@@ -74,7 +74,7 @@ if (! empty($args['wp_host'])) {
 }
 
 if (! empty($args['plugin_location'])) {
-    if (! is_file($args['plugin_location']))  {
+    if (! is_file($args['plugin_location'])) {
         echo outputError("File {$args['plugin_location']} not exists. Provide correct 'plugin_location' param in config file. For example, 'wces.zip'");
         exit(2);
     }
@@ -84,7 +84,7 @@ if (! empty($args['plugin_location'])) {
 }
 
 if (! empty($args['wp_dir'])) {
-    if (! is_dir($args['wp_dir']) || ! is_writable($args['wp_dir']))  {
+    if (! is_dir($args['wp_dir']) || ! is_writable($args['wp_dir'])) {
         echo outputError("Directory {$args['wp_dir']} not exists or not writable. Provide correct 'wp_dir' param in config file'");
         exit(2);
     }
@@ -104,14 +104,22 @@ if (! empty($args['wp_admin_email'])) {
 	}
 }
 
+if (! empty($args['log_dir']) ) {
+    if (! is_dir($args['log_dir']) || ! is_writable($args['log_dir']) ) {
+        echo outputError("Directory for logs {$args['log_dir']} not exists or not writable. Provide correct 'log_dir' param in config file");
+        exit(2);
+    }
+}
+
 // Script settings
 $force = (isset($args['force']));
+
+$logDir = $args['log_dir'];
 
 global $verbose;
 $verbose = (! empty($args['verbose'])) ? (bool) $args['verbose'] : false;
 
 $forceSuffix    = $force ? '--force' : '';
-//$devNullSuffix  = $verbose ? '' : '2>/dev/null';
 $devNullSuffix  = $verbose ? '' : '>/dev/null 2>/dev/null';
 
 $wpVersion  = $args['wp'];
@@ -314,11 +322,10 @@ echo outputString("WordPress v$installedWpVersion was included");
 echo outputTitle('Elasticsearch synchronization');
 
 $execOutput = [];
-$cmd = 'wp wces status';
-exec($cmd, $execOutput); // todo create one param value returns mode (wp wces status --es)
-$esConnected = substr($execOutput[0], 25, 2) !== 'NO' ? true : false;
+$cmd = "wp wces status --only='is_connected'";
+$exec = exec($cmd);
 
-if (! $esConnected) {
+if ( $exec === 'false') {
 	commandErrorHandler($cmd, 1, 'Elasticsearch not connected');
 }
 $execOutput = null;
@@ -408,25 +415,16 @@ foreach ($tests as $test) {
     echo outputString($test['description'] . ' => ' . ($test['passed'] ? '✔ passed' : '× NOT PASSED'), false);
 }
 
-echo outputString('', false);
-if ($allTestsCount === $passedCount) {
-    $scriptResultCode = 0;
-    echo outputError('All tests have passed', false, false);
-} elseif($allTestsCount === $failedCount) {
-    $scriptResultCode = 3;
-    echo outputError('All tests have failed', false, false);
-} else {
-    $scriptResultCode = 3;
-	echo outputError('Some tests have failed', false, false);
-}
-echo outputError(" (passed $passedCount/$allTestsCount)");
+$outputStuff = [
+    'installedWpVersion' => $installedWpVersion,
+    'installedWcVersion' => wc()->version,
+];
 
-chdir($cwd);
+$outputSummary = outputSummary($allTestsCount, $passedCount, $failedCount, $outputStuff);
 
-echo outputString('', false);
-echo outputString('Script completed with status code ' . $scriptResultCode);
+echo $outputSummary['message'];
 
-exit($scriptResultCode);
+exit($outputSummary['code']);
 
 /**
  * @param string $cmd
@@ -503,6 +501,67 @@ function outputTitle($str) {
 	$str = $outputDelimiter . "* $str..." . PHP_EOL;
 
 	return $str;
+}
+
+function outputSummary($allTestsCount, $passedCount, $failedCount, $stuff) {
+    /**
+     * @var string $installedWpVersion
+     * @var string $installedWcVersion
+     */
+    extract($stuff);
+
+    if (!isset($installedWpVersion, $installedWcVersion)) {
+        commandErrorHandler('outputSummary', 1, 'Missed required params for outputSummary call. Provide $installedWpVersion and $installedWcVersion in $stuff array');
+    }
+
+    $code = 0;
+
+    $message = '';
+
+    $message .= PHP_EOL;
+    $message .= '----------------- ';
+    if ($allTestsCount === $passedCount) {
+        $code = 0;
+        $message.= 'All tests have passed';
+    } elseif($allTestsCount === $failedCount) {
+        $code = 3;
+        $message.= 'All tests have failed';
+    } else {
+        $code = 3;
+        $message.= 'Some tests have failed';
+    }
+
+    $apacheVer = 'unknown';
+    if (function_exists('apache_get_version')) {
+        $apacheVer = apache_get_version();
+    } else {
+        $commands = [
+            'apache2 -v 2>/dev/null',
+            'apache2ctl -v 2>/dev/null',
+            'httpd -v 2>/dev/null',
+            '/usr/sbin/apache2 -v 2>/dev/null',
+            'dpkg -l | grep apache',
+        ];
+
+        foreach ($commands as $command) {
+            $output = $returned = null;
+            exec($command,$output, $returned);
+            if ($returned === 0 && ! empty($output)) {
+                $apacheVer = $output[0];
+                break;
+            }
+        }
+    }
+
+    $message .= " (passed $passedCount/$allTestsCount)" . PHP_EOL;
+    $message .= 'Apache: ' . $apacheVer . PHP_EOL;
+    $message .= 'PHP: ' . phpversion() . PHP_EOL;
+    $message .= 'Elasticsearch: ' . exec("wp wces status --only='number'") . PHP_EOL;
+    $message .= 'WordPress: ' . $installedWpVersion . PHP_EOL;
+    $message .= 'WooCommerce: ' . $installedWcVersion . PHP_EOL;
+    $message .= 'WCES: ' . wces()->get_version() . PHP_EOL;
+
+    return compact('code', 'message');
 }
 
 /**
