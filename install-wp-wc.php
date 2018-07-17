@@ -259,6 +259,7 @@ echo outputTitle('Installing and configuring WooCommerce');
 $cmd1 = "wp plugin install woocommerce --path='$wpDir' --version=$wcVersion --activate $forceSuffix $devNullSuffix";
 $cmd2 = "wp plugin install wordpress-importer --path='$wpDir' --activate $forceSuffix $devNullSuffix";
 $cmd3 = "wp theme install storefront --path='$wpDir' --activate  $forceSuffix $devNullSuffix";
+$cmd4 = "wp plugin install query-monitor --path='$wpDir' $forceSuffix $devNullSuffix"; // Plugin for web-interface debugging
 
 customPassthru($cmd1, $returnedVar);
 commandErrorHandler($cmd1, $returnedVar);
@@ -269,6 +270,8 @@ commandErrorHandler($cmd2, $returnedVar);
 $returnedVar = 0;
 customPassthru($cmd3, $returnedVar);
 commandErrorHandler($cmd3, $returnedVar);
+
+customPassthru($cmd4);
 
 /*
  * Import products from XML file
@@ -403,19 +406,24 @@ $tests = [
 
 $tests['wp_versions_equals']['passed'] = $wpVersion === $installedWpVersion;
 
-$tests['wc_versions_equals']['passed'] = $wcVersion === WC()->version;
+$installedWcVersion = WC()->version;
+
+$tests['wc_versions_equals']['passed'] = $wcVersion === $installedWcVersion;
 
 $products = get_posts([
     's'         => 'Beanie with Logo',
     'post_type' => 'product',
+    'orderby'   => 'post_title',
+    'order'     => 'asc',
+    'posts_per_page'     => -1,
 ]);
 
-$receivedNames = [];
+$receivedNames1 = [];
 foreach ($products as $product) {
-    $receivedNames[$product->post_name] = $product->post_title;
+    $receivedNames1[$product->post_name] = $product->post_title;
 }
 
-$expectedNames = [
+$expectedNames1 = [
     'beanie-with-logo'  => 'Beanie with Logo',
     't-shirt-with-logo' => 'T-Shirt with Logo',
     'beanie'            => 'Beanie',
@@ -426,7 +434,7 @@ $expectedNames = [
 // if Elasticsearch is off:
 // 'beanie-with-logo'  => 'Beanie with Logo'
 
-$tests['search_results1_equals']['passed'] = isArrayEquals($receivedNames, $expectedNames);
+$tests['search_results1_equals']['passed'] = isArrayEquals($receivedNames1, $expectedNames1);
 
 $products = get_posts([
     's'           => 'Beanie with Logo',
@@ -434,16 +442,16 @@ $products = get_posts([
     'product_cat' => 'clothing',
 ]);
 
-$receivedNames = [];
+$receivedNames2 = [];
 foreach ($products as $product) {
-    $receivedNames[$product->post_name] = $product->post_title;
+    $receivedNames2[$product->post_name] = $product->post_title;
 }
 
-$expectedNames = [
+$expectedNames2 = [
     'logo-collection' => 'Logo Collection',
 ];
 
-$tests['search_results2_equals']['passed'] = isArrayEquals($receivedNames, $expectedNames);
+$tests['search_results2_equals']['passed'] = isArrayEquals($receivedNames2, $expectedNames2);
 
 $passedCount = $failedCount = $allTestsCount = 0;
 $scriptResultCode = 0;
@@ -460,10 +468,14 @@ foreach ($tests as $test) {
 }
 logData($logTestsData);
 
-$outputStuff = [
-    'installedWpVersion' => $installedWpVersion,
-    'installedWcVersion' => wc()->version,
-];
+$outputStuff = compact(
+    'installedWpVersion',
+    'installedWcVersion',
+    'receivedNames1',
+    'expectedNames1',
+    'receivedNames2',
+    'expectedNames2'
+    );
 
 $outputSummary = outputSummary($allTestsCount, $passedCount, $failedCount, $outputStuff);
 
@@ -584,6 +596,11 @@ function outputSummary($allTestsCount, $passedCount, $failedCount, $stuff) {
     /**
      * @var string $installedWpVersion
      * @var string $installedWcVersion
+     *
+     * @var array $receivedNames1
+     * @var array $expectedNames1
+     * @var array $receivedNames2
+     * @var array $expectedNames2
      */
     extract($stuff);
 
@@ -601,35 +618,26 @@ function outputSummary($allTestsCount, $passedCount, $failedCount, $stuff) {
     if ($allTestsCount === $passedCount) {
         $code = 0;
         $message.= 'All tests have passed';
-    } elseif($allTestsCount === $failedCount) {
-        $code = 3;
-        $message.= 'All tests have failed';
     } else {
         $code = 3;
-        $message.= 'Some tests have failed';
+        $message.= 'Some tests have failed. See log file for details';
+
+        logData('receivedNames1: ');
+        logData($receivedNames1);
+
+        logData('expectedNames1: ');
+        logData($expectedNames1);
+
+        logData('receivedNames2: ');
+        logData($receivedNames2);
+
+        logData('expectedNames2');
+        logData($expectedNames2);
     }
 
-    $apacheVer = 'unknown';
-    if (function_exists('apache_get_version')) {
-        $apacheVer = apache_get_version();
-    } else {
-        $commands = [
-            'apache2 -v 2>/dev/null',
-            'apache2ctl -v 2>/dev/null',
-            'httpd -v 2>/dev/null',
-            '/usr/sbin/apache2 -v 2>/dev/null',
-            'dpkg -l | grep apache 2>/dev/null',
-        ];
+    $apacheVer = customApacheGetVersion();
 
-        foreach ($commands as $command) {
-            $output = $returned = null;
-            exec($command,$output, $returned);
-            if ($returned === 0 && ! empty($output)) {
-                $apacheVer = $output[0];
-                break;
-            }
-        }
-    }
+    if (! $apacheVer) $apacheVer = 'unknown';
 
     $message .= " (passed $passedCount/$allTestsCount)" . PHP_EOL;
     $message .= 'Apache: ' . $apacheVer . PHP_EOL;
@@ -687,4 +695,38 @@ function isArrayEquals($a, $b) {
         && count($a) === count($b)
         && array_diff($a, $b) === array_diff($b, $a)
     );
+}
+
+/**
+ * Fetch the Apache version
+ * from apache_get_version() function (if available)
+ * or from some Unix commands.
+ *
+ * @return string|false the Apache version on success or FALSE on failure.
+ */
+function customApacheGetVersion() {
+    $apacheVer = false;
+
+    if (function_exists('apache_get_version')) {
+        $apacheVer = apache_get_version();
+    } else {
+        $commands = [
+            'apache2 -v 2>/dev/null',
+            'apache2ctl -v 2>/dev/null',
+            'httpd -v 2>/dev/null',
+            '/usr/sbin/apache2 -v 2>/dev/null',
+            'dpkg -l | grep apache 2>/dev/null',
+        ];
+
+        foreach ($commands as $command) {
+            $output = $returned = null;
+            exec($command,$output, $returned);
+            if ($returned === 0 && ! empty($output)) {
+                $apacheVer = $output[0];
+                break;
+            }
+        }
+    }
+
+    return $apacheVer;
 }
