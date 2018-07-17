@@ -39,11 +39,17 @@
  */
 
 /*
+ * Set up PHP config settings.
+ */
+
+date_default_timezone_set('Europe/Kiev');
+
+/*
  * Received arguments validation and their assignment.
  */
 
 /**
- * Log file for current script's run.
+ * Full log file path for current script's run.
  *
  * @var string
  */
@@ -62,6 +68,7 @@ $args = getopt('', [
 
 	// Optional arguments
 	'force',
+	'verbose',
 	'config_path:',
 ]);
 
@@ -72,9 +79,13 @@ if (! isset($args['wp'], $args['wc'])) {
     exit(2);
 }
 
+$verbose = isset($args['verbose']) ? $args['verbose'] : null;
+
 $configPath = ! empty($args['config_path']) ? $args['config_path'] : 'config.php';
 
-$args = $args + require $configPath;
+$config = require $configPath;
+
+$args = $args + $config;
 
 if (! empty($args['logs_dir']) ) {
     $args['logs_dir'] = realpath($args['logs_dir']);
@@ -143,7 +154,11 @@ if (! empty($args['wp_admin_email'])) {
 // Script settings
 $force = (isset($args['force']));
 
-$verbose = (! empty($args['verbose'])) ? (bool) $args['verbose'] : false;
+if (is_null($verbose)) {
+    $verbose = (! empty($args['verbose'])) ? (bool) $args['verbose'] : false;
+} else {
+    $verbose = true;
+}
 
 $forceSuffix    = $force ? '--force' : '';
 $devNullSuffix  = $verbose ? '' : '>/dev/null 2>/dev/null';
