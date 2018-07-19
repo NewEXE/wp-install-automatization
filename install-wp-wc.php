@@ -97,8 +97,8 @@ if (! empty($args['logs_dir']) ) {
     $logsDir = rtrim($args['logs_dir'], '/\\');
 } else {
     $defaultLogsDir = realpath('logs');
-    if (! is_dir('logs')) {
-        if (! @mkdir('logs')) {
+    if (! is_dir($defaultLogsDir)) {
+        if (! @mkdir($defaultLogsDir)) {
             echo outputError("mkdir('$defaultLogsDir') fail. Check script directory for write permissions");
             exit(2);
         }
@@ -178,7 +178,7 @@ $dbParams = [
 ];
 
 // WP installation settings
-$wpDir          = ! empty($args['wp_dir']) ? rtrim($args['wp_dir'], '/\\') . DIRECTORY_SEPARATOR . $codeName : $codeName;
+$wpDir          = ! empty($args['wp_dir']) ? rtrim($args['wp_dir'], '/\\') . DIRECTORY_SEPARATOR . $codeName : realpath($codeName);
 $url            = "$domainName/$codeName";
 $title          = "WP v$wpVersion, WC v$wcVersion";
 $adminUser      = ! empty($args['wp_admin_user']) ? $args['wp_admin_user'] : 'admin';
@@ -217,12 +217,20 @@ if (! is_dir($wpDir)) {
     if (! mkdir($wpDir, 0755)) {
 	    commandErrorHandler("mkdir($wpDir, 0755)", 1);
     }
+} else {
+    if($force) {
+        customRmdir($wpDir);
+    }
 }
 
 try {
     $dbh = new PDO("mysql:host={$dbParams['host']}", $dbParams['user'], $dbParams['password']);
     $dbh->exec("set names utf8");
     $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+    if ($force) {
+        $dbh->exec("DROP DATABASE IF EXISTS `{$dbParams['db']}`");
+    }
 
     $sql = "CREATE DATABASE IF NOT EXISTS `{$dbParams['db']}`";
     $dbh->exec($sql);
@@ -313,14 +321,6 @@ if (is_file($pluginPath)) {
 	commandErrorHandler("is_file($pluginPath)", 1, 'Provide correct path to plugin\'s ZIP-file');
 }
 
-$execOutput = [];
-$cmd = "wp plugin activate wces --path='$wpDir' $devNullSuffix";
-exec($cmd, $execOutput, $returnedVar);
-
-commandErrorHandler($cmd, $returnedVar);
-$execOutput = null;
-
-
 /*
  * Include WP core
  */
@@ -378,6 +378,8 @@ $cmd = 'wp wces index';
 $exec = exec($cmd);
 echo outputString($exec);
 
+echo outputString('Sleep 5 seconds after reindex...', false);
+sleep(5);
 
 /*
  * Testing
@@ -413,9 +415,6 @@ $tests['wc_versions_equals']['passed'] = $wcVersion === $installedWcVersion;
 $products = get_posts([
     's'         => 'Beanie with Logo',
     'post_type' => 'product',
-    'orderby'   => 'post_title',
-    'order'     => 'asc',
-    'posts_per_page'     => -1,
 ]);
 
 $receivedNames1 = [];
@@ -729,4 +728,22 @@ function customApacheGetVersion() {
     }
 
     return $apacheVer;
+}
+
+/**
+ * Removes directory with files.
+ *
+ * @param string $dirName Path to the directory.
+ * @return bool true on success or false on failure.
+ */
+function customRmdir($dirName) {
+    $files = array_diff(scandir($dirName), array('.','..'));
+
+    foreach ($files as $file) {
+        $path = "$dirName/$file";
+
+        is_dir($path) ? customRmdir($path) : unlink($path);
+    }
+
+    return rmdir($dirName);
 }
