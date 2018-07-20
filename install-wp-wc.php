@@ -39,11 +39,17 @@
  */
 
 /*
+ * Set up PHP config settings.
+ */
+
+date_default_timezone_set('Europe/Kiev');
+
+/*
  * Received arguments validation and their assignment.
  */
 
 /**
- * Log file for current script's run.
+ * Full log file path for current script's run.
  *
  * @var string
  */
@@ -62,6 +68,7 @@ $args = getopt('', [
 
 	// Optional arguments
 	'force',
+	'verbose',
 	'config_path:',
 ]);
 
@@ -72,9 +79,13 @@ if (! isset($args['wp'], $args['wc'])) {
     exit(2);
 }
 
+$verbose = isset($args['verbose']) ? $args['verbose'] : null;
+
 $configPath = ! empty($args['config_path']) ? $args['config_path'] : 'config.php';
 
-$args = $args + require $configPath;
+$config = require $configPath;
+
+$args = $args + $config;
 
 if (! empty($args['logs_dir']) ) {
     $args['logs_dir'] = realpath($args['logs_dir']);
@@ -86,8 +97,8 @@ if (! empty($args['logs_dir']) ) {
     $logsDir = rtrim($args['logs_dir'], '/\\');
 } else {
     $defaultLogsDir = realpath('logs');
-    if (! is_dir('logs')) {
-        if (! @mkdir('logs')) {
+    if (! is_dir($defaultLogsDir)) {
+        if (! @mkdir($defaultLogsDir)) {
             echo outputError("mkdir('$defaultLogsDir') fail. Check script directory for write permissions");
             exit(2);
         }
@@ -143,7 +154,11 @@ if (! empty($args['wp_admin_email'])) {
 // Script settings
 $force = (isset($args['force']));
 
-$verbose = (! empty($args['verbose'])) ? (bool) $args['verbose'] : false;
+if (is_null($verbose)) {
+    $verbose = (! empty($args['verbose'])) ? (bool) $args['verbose'] : false;
+} else {
+    $verbose = true;
+}
 
 $forceSuffix    = $force ? '--force' : '';
 $devNullSuffix  = $verbose ? '' : '>/dev/null 2>/dev/null';
@@ -163,7 +178,7 @@ $dbParams = [
 ];
 
 // WP installation settings
-$wpDir          = ! empty($args['wp_dir']) ? rtrim($args['wp_dir'], '/\\') . DIRECTORY_SEPARATOR . $codeName : $codeName;
+$wpDir          = ! empty($args['wp_dir']) ? rtrim($args['wp_dir'], '/\\') . DIRECTORY_SEPARATOR . $codeName : realpath($codeName);
 $url            = "$domainName/$codeName";
 $title          = "WP v$wpVersion, WC v$wcVersion";
 $adminUser      = ! empty($args['wp_admin_user']) ? $args['wp_admin_user'] : 'admin';
@@ -202,12 +217,20 @@ if (! is_dir($wpDir)) {
     if (! mkdir($wpDir, 0755)) {
 	    commandErrorHandler("mkdir($wpDir, 0755)", 1);
     }
+} else {
+    if($force) {
+        customRmdir($wpDir);
+    }
 }
 
 try {
     $dbh = new PDO("mysql:host={$dbParams['host']}", $dbParams['user'], $dbParams['password']);
     $dbh->exec("set names utf8");
     $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+    if ($force) {
+        $dbh->exec("DROP DATABASE IF EXISTS `{$dbParams['db']}`");
+    }
 
     $sql = "CREATE DATABASE IF NOT EXISTS `{$dbParams['db']}`";
     $dbh->exec($sql);
@@ -244,6 +267,7 @@ echo outputTitle('Installing and configuring WooCommerce');
 $cmd1 = "wp plugin install woocommerce --path='$wpDir' --version=$wcVersion --activate $forceSuffix $devNullSuffix";
 $cmd2 = "wp plugin install wordpress-importer --path='$wpDir' --activate $forceSuffix $devNullSuffix";
 $cmd3 = "wp theme install storefront --path='$wpDir' --activate  $forceSuffix $devNullSuffix";
+$cmd4 = "wp plugin install query-monitor --path='$wpDir' $forceSuffix $devNullSuffix"; // Plugin for web-interface debugging
 
 customPassthru($cmd1, $returnedVar);
 commandErrorHandler($cmd1, $returnedVar);
@@ -254,6 +278,8 @@ commandErrorHandler($cmd2, $returnedVar);
 $returnedVar = 0;
 customPassthru($cmd3, $returnedVar);
 commandErrorHandler($cmd3, $returnedVar);
+
+customPassthru($cmd4);
 
 /*
  * Import products from XML file
@@ -294,14 +320,6 @@ if (is_file($pluginPath)) {
 } else {
 	commandErrorHandler("is_file($pluginPath)", 1, 'Provide correct path to plugin\'s ZIP-file');
 }
-
-$execOutput = [];
-$cmd = "wp plugin activate wces --path='$wpDir' $devNullSuffix";
-exec($cmd, $execOutput, $returnedVar);
-
-commandErrorHandler($cmd, $returnedVar);
-$execOutput = null;
-
 
 /*
  * Include WP core
@@ -360,6 +378,8 @@ $cmd = 'wp wces index';
 $exec = exec($cmd);
 echo outputString($exec);
 
+echo outputString('Sleep 5 seconds after reindex...', false);
+sleep(5);
 
 /*
  * Testing
@@ -388,19 +408,21 @@ $tests = [
 
 $tests['wp_versions_equals']['passed'] = $wpVersion === $installedWpVersion;
 
-$tests['wc_versions_equals']['passed'] = $wcVersion === WC()->version;
+$installedWcVersion = WC()->version;
+
+$tests['wc_versions_equals']['passed'] = $wcVersion === $installedWcVersion;
 
 $products = get_posts([
     's'         => 'Beanie with Logo',
     'post_type' => 'product',
 ]);
 
-$receivedNames = [];
+$receivedNames1 = [];
 foreach ($products as $product) {
-    $receivedNames[$product->post_name] = $product->post_title;
+    $receivedNames1[$product->post_name] = $product->post_title;
 }
 
-$expectedNames = [
+$expectedNames1 = [
     'beanie-with-logo'  => 'Beanie with Logo',
     't-shirt-with-logo' => 'T-Shirt with Logo',
     'beanie'            => 'Beanie',
@@ -411,7 +433,7 @@ $expectedNames = [
 // if Elasticsearch is off:
 // 'beanie-with-logo'  => 'Beanie with Logo'
 
-$tests['search_results1_equals']['passed'] = isArrayEquals($receivedNames, $expectedNames);
+$tests['search_results1_equals']['passed'] = isArrayEquals($receivedNames1, $expectedNames1);
 
 $products = get_posts([
     's'           => 'Beanie with Logo',
@@ -419,16 +441,16 @@ $products = get_posts([
     'product_cat' => 'clothing',
 ]);
 
-$receivedNames = [];
+$receivedNames2 = [];
 foreach ($products as $product) {
-    $receivedNames[$product->post_name] = $product->post_title;
+    $receivedNames2[$product->post_name] = $product->post_title;
 }
 
-$expectedNames = [
+$expectedNames2 = [
     'logo-collection' => 'Logo Collection',
 ];
 
-$tests['search_results2_equals']['passed'] = isArrayEquals($receivedNames, $expectedNames);
+$tests['search_results2_equals']['passed'] = isArrayEquals($receivedNames2, $expectedNames2);
 
 $passedCount = $failedCount = $allTestsCount = 0;
 $scriptResultCode = 0;
@@ -445,10 +467,14 @@ foreach ($tests as $test) {
 }
 logData($logTestsData);
 
-$outputStuff = [
-    'installedWpVersion' => $installedWpVersion,
-    'installedWcVersion' => wc()->version,
-];
+$outputStuff = compact(
+    'installedWpVersion',
+    'installedWcVersion',
+    'receivedNames1',
+    'expectedNames1',
+    'receivedNames2',
+    'expectedNames2'
+    );
 
 $outputSummary = outputSummary($allTestsCount, $passedCount, $failedCount, $outputStuff);
 
@@ -569,6 +595,11 @@ function outputSummary($allTestsCount, $passedCount, $failedCount, $stuff) {
     /**
      * @var string $installedWpVersion
      * @var string $installedWcVersion
+     *
+     * @var array $receivedNames1
+     * @var array $expectedNames1
+     * @var array $receivedNames2
+     * @var array $expectedNames2
      */
     extract($stuff);
 
@@ -586,35 +617,26 @@ function outputSummary($allTestsCount, $passedCount, $failedCount, $stuff) {
     if ($allTestsCount === $passedCount) {
         $code = 0;
         $message.= 'All tests have passed';
-    } elseif($allTestsCount === $failedCount) {
-        $code = 3;
-        $message.= 'All tests have failed';
     } else {
         $code = 3;
-        $message.= 'Some tests have failed';
+        $message.= 'Some tests have failed. See log file for details';
+
+        logData('receivedNames1: ');
+        logData($receivedNames1);
+
+        logData('expectedNames1: ');
+        logData($expectedNames1);
+
+        logData('receivedNames2: ');
+        logData($receivedNames2);
+
+        logData('expectedNames2');
+        logData($expectedNames2);
     }
 
-    $apacheVer = 'unknown';
-    if (function_exists('apache_get_version')) {
-        $apacheVer = apache_get_version();
-    } else {
-        $commands = [
-            'apache2 -v 2>/dev/null',
-            'apache2ctl -v 2>/dev/null',
-            'httpd -v 2>/dev/null',
-            '/usr/sbin/apache2 -v 2>/dev/null',
-            'dpkg -l | grep apache 2>/dev/null',
-        ];
+    $apacheVer = customApacheGetVersion();
 
-        foreach ($commands as $command) {
-            $output = $returned = null;
-            exec($command,$output, $returned);
-            if ($returned === 0 && ! empty($output)) {
-                $apacheVer = $output[0];
-                break;
-            }
-        }
-    }
+    if (! $apacheVer) $apacheVer = 'unknown';
 
     $message .= " (passed $passedCount/$allTestsCount)" . PHP_EOL;
     $message .= 'Apache: ' . $apacheVer . PHP_EOL;
@@ -672,4 +694,73 @@ function isArrayEquals($a, $b) {
         && count($a) === count($b)
         && array_diff($a, $b) === array_diff($b, $a)
     );
+}
+
+/**
+ * Fetch the Apache version
+ * from apache_get_version() function (if available)
+ * or from some Unix commands.
+ *
+ * @return string|false the Apache version on success or FALSE on failure.
+ */
+function customApacheGetVersion() {
+    $apacheVer = false;
+
+    if (function_exists('apache_get_version')) {
+        $apacheVer = apache_get_version();
+    } else {
+        $commands = [
+            'apache2 -v',
+            'apache2ctl -v',
+            'httpd -v',
+            '/usr/sbin/apache2 -v',
+            'dpkg -l | grep apache',
+        ];
+
+        foreach ($commands as $command) {
+            $output = $returned = null;
+            exec("$command 2>/dev/null",$output, $returned);
+            if ($returned === 0 && ! empty($output)) {
+                $apacheVer = $output[0];
+                break;
+            }
+        }
+    }
+
+    return $apacheVer;
+}
+
+/**
+ * Removes directory with files.
+ *
+ * @param string $dirName Path to the directory.
+ * @return bool true on success or false on failure.
+ */
+function customRmdir($dirName) {
+    if (empty($dirName) || $dirName === '/' || $dirName === DIRECTORY_SEPARATOR) return false;
+
+    $returned = 1;
+    $output = []; // for passing $returned as exec() third param
+    if (PHP_OS !== 'Windows') {
+        exec(sprintf("rm -rf --preserve-root %s", escapeshellarg($dirName)), $output, $returned);
+    } else {
+        exec(sprintf("rd /s /q %s", escapeshellarg($dirName)), $output, $returned);
+    }
+    $output = null;
+
+    return $returned === 0;
+}
+
+function customRmdir2($dirName) {
+    if (empty($dirName) || $dirName === '/' || $dirName === DIRECTORY_SEPARATOR) return false;
+
+    $files = array_diff(scandir($dirName), array('.','..'));
+
+    foreach ($files as $file) {
+        $path = "$dirName/$file";
+
+        is_dir($path) ? customRmdir($path) : unlink($path);
+    }
+
+    return rmdir($dirName);
 }
