@@ -710,16 +710,16 @@ function customApacheGetVersion() {
         $apacheVer = apache_get_version();
     } else {
         $commands = [
-            'apache2 -v 2>/dev/null',
-            'apache2ctl -v 2>/dev/null',
-            'httpd -v 2>/dev/null',
-            '/usr/sbin/apache2 -v 2>/dev/null',
-            'dpkg -l | grep apache 2>/dev/null',
+            'apache2 -v',
+            'apache2ctl -v',
+            'httpd -v',
+            '/usr/sbin/apache2 -v',
+            'dpkg -l | grep apache',
         ];
 
         foreach ($commands as $command) {
             $output = $returned = null;
-            exec($command,$output, $returned);
+            exec("$command 2>/dev/null",$output, $returned);
             if ($returned === 0 && ! empty($output)) {
                 $apacheVer = $output[0];
                 break;
@@ -737,6 +737,23 @@ function customApacheGetVersion() {
  * @return bool true on success or false on failure.
  */
 function customRmdir($dirName) {
+    if (empty($dirName) || $dirName === '/' || $dirName === DIRECTORY_SEPARATOR) return false;
+
+    $returned = 1;
+    $output = []; // for passing $returned as exec() third param
+    if (PHP_OS !== 'Windows') {
+        exec(sprintf("rm -rf --preserve-root %s", escapeshellarg($dirName)), $output, $returned);
+    } else {
+        exec(sprintf("rd /s /q %s", escapeshellarg($dirName)), $output, $returned);
+    }
+    $output = null;
+
+    return $returned === 0;
+}
+
+function customRmdir2($dirName) {
+    if (empty($dirName) || $dirName === '/' || $dirName === DIRECTORY_SEPARATOR) return false;
+
     $files = array_diff(scandir($dirName), array('.','..'));
 
     foreach ($files as $file) {
